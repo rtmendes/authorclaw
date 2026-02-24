@@ -4,11 +4,17 @@ This directory is where purchased premium skills are installed.
 
 ## Get the Premium Bundle
 
-The **AuthorClaw Premium Skills Bundle** includes all premium skills in one package:
+The **AuthorClaw Premium Skills Bundle** includes **10 premium skills** in one package:
 
 - **Ghostwriter Pro** — Scene generation, pacing analysis, tension mapping, deep write mode
 - **Series Architect** — Multi-book series planning, continuity engine, thread tracker
 - **Book Launch Machine** — 60-day book launch automation, ad copy factory, email sequences
+- **First Chapter Hook** — Hook scoring, opening line workshop, Look Inside optimizer
+- **Comp Title Finder** — Comparable title discovery, market positioning, category strategy
+- **Dictation Cleanup** — Speech-to-text cleanup with 3 intensity levels, voice-aware
+- **Sensitivity Reader** — Representation review, cultural accuracy, bias detection
+- **Read Aloud** — Free TTS manuscript reader with ear-edit revision workflow
+- **Narrative Voice Coach** — 47-marker voice analysis, consistency checking, style coaching
 - **Writing Secrets Integration** — Bridges for Book Bible Engine, Workflow Engine, and StyleClone Pro
 
 **Purchase:** [Ko-Fi Store](https://ko-fi.com/writingsecrets) *(link coming soon)*
@@ -22,12 +28,16 @@ The **AuthorClaw Premium Skills Bundle** includes all premium skills in one pack
    skills/premium/ghostwriter-pro/SKILL.md
    skills/premium/series-architect/SKILL.md
    skills/premium/book-launch-machine/SKILL.md
-   skills/premium/deep-voice-analysis/SKILL.md
-   skills/premium/ws-book-bible-bridge/SKILL.md
-   skills/premium/ws-workflow-engine-bridge/SKILL.md
+   skills/premium/first-chapter-hook/SKILL.md
+   skills/premium/comp-title-finder/SKILL.md
+   skills/premium/dictation-cleanup/SKILL.md
+   skills/premium/sensitivity-reader/SKILL.md
+   skills/premium/read-aloud/SKILL.md
+   skills/premium/narrative-voice-coach/SKILL.md
+   skills/premium/writing-secrets-integration/SKILL.md
    ```
 4. Restart AuthorClaw
-5. Skills auto-load and appear with a star in the console log
+5. Skills auto-load and appear with a ★ in the console log
 
 ## Verification
 

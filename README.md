@@ -101,7 +101,7 @@ See [QUICKSTART.md](QUICKSTART.md) for the full setup guide.
 │  │ SOUL.md   │   │ Dynamic AI Plan │   │ Core           │  │
 │  │ STYLE.md  │   │ Auto-Execute    │   │ Author (16)    │  │
 │  │ VOICE.md  │   │ File Saving     │   │ Marketing (4)  │  │
-│  │           │   │ Activity Log    │   │ Premium (6+)   │  │
+│  │           │   │ Activity Log    │   │ Premium (10)   │  │
 │  └───────────┘   └─────────────────┘   └────────────────┘  │
 │                                                             │
 │  ┌───────────┐   ┌─────────────────┐   ┌────────────────┐  │
@@ -206,12 +206,18 @@ Skills are automatically matched by keyword triggers and injected into the AI's 
 
 ### Premium Skills Bundle
 
-The **AuthorClaw Premium Skills Bundle** adds advanced capabilities — available on our [Ko-Fi store](https://ko-fi.com/writingsecrets) *(link coming soon)*:
+The **AuthorClaw Premium Skills Bundle** adds 10 advanced capabilities — available on our [Ko-Fi store](https://ko-fi.com/writingsecrets) *(link coming soon)*:
 
 - **Ghostwriter Pro** — Scene generation, pacing analysis, tension mapping, deep write mode, dialogue polish
 - **Series Architect** — Multi-book series planning, continuity engine, thread tracker, revenue projections
 - **Book Launch Machine** — 60-day launch automation, ad copy factory, email sequences, social media calendar
-- **Writing Secrets Integration** — Bridges for Book Bible Engine, Workflow Engine, and StyleClone Pro (47 voice markers)
+- **First Chapter Hook** — Hook scoring, opening line workshop, Look Inside optimizer, genre templates
+- **Comp Title Finder** — Comparable title discovery, market positioning, category strategy
+- **Dictation Cleanup** — Speech-to-text cleanup with 3 intensity levels, voice-aware processing
+- **Sensitivity Reader** — Representation review, cultural accuracy, bias detection with smart context
+- **Read Aloud** — Free TTS manuscript reader with ear-edit revision workflow (Piper TTS)
+- **Narrative Voice Coach** — 47-marker voice analysis, consistency checking, style coaching
+- **Writing Secrets Integration** — Bridges for Book Bible Engine, Workflow Engine, and StyleClone Pro
 
 Install: copy the skill folders to `skills/premium/` and restart. See `skills/premium/README.md` for details.
 
@@ -233,7 +239,7 @@ authorclaw/
 │   ├── core/             # System skills (full-pipeline, etc.)
 │   ├── author/           # Writing skills (16)
 │   ├── marketing/        # Marketing skills (4)
-│   └── premium/          # Premium skill packs (6+)
+│   └── premium/          # Premium skill packs (10)
 ├── dashboard/dist/       # Web dashboard (single HTML file)
 ├── workspace/            # Working directory
 │   ├── soul/             # SOUL.md, STYLE-GUIDE.md, VOICE-PROFILE.md
