@@ -13,13 +13,23 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
   const services = gateway.getServices();
   const baseDir = rootDir || process.cwd();
 
+  // In-memory conductor state (updated by conductor script, read by dashboard)
+  let conductorState: any = { phase: 'idle', step: '', progress: {} };
+  let conductorStopRequested = false;
+
   // ── Health Check ──
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({
       status: 'ok',
       version: '2.0.0',
       name: 'AuthorClaw',
+      brand: 'Writing Secrets',
       uptime: process.uptime(),
+      links: {
+        website: 'https://www.getwritingsecrets.com',
+        kofi: 'https://ko-fi.com/s/4e24f1dfa5',
+        youtube: 'https://www.youtube.com/@WritingSecrets',
+      },
     });
   });
 
@@ -791,5 +801,58 @@ ${sourceCode.substring(0, 15000)}
     } catch (error) {
       res.status(500).json({ error: 'Failed to save skill: ' + String(error) });
     }
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  // Conductor Management (book-conductor.ts communication)
+  // ═══════════════════════════════════════════════════════════
+
+  // Conductor posts its status here (called by scripts/book-conductor.ts)
+  app.post('/api/conductor/status', (req: Request, res: Response) => {
+    conductorState = req.body;
+    res.json({ ok: true, stopRequested: conductorStopRequested });
+  });
+
+  // Dashboard reads conductor status
+  app.get('/api/conductor/status', (_req: Request, res: Response) => {
+    res.json({ ...conductorState, stopRequested: conductorStopRequested });
+  });
+
+  // Dashboard sends stop signal
+  app.post('/api/conductor/stop', (_req: Request, res: Response) => {
+    conductorStopRequested = true;
+    res.json({ success: true, message: 'Stop signal sent to conductor' });
+  });
+
+  // Reset stop signal (when conductor starts)
+  app.post('/api/conductor/start', (_req: Request, res: Response) => {
+    conductorStopRequested = false;
+    conductorState = { phase: 'starting', step: 'Initializing...', progress: {} };
+    res.json({ success: true });
+  });
+
+  // Save project config for conductor
+  app.post('/api/conductor/config', async (req: Request, res: Response) => {
+    const { join: j } = await import('path');
+    const { mkdir, writeFile } = await import('fs/promises');
+    const configDir = j(baseDir, 'workspace', '.config');
+    await mkdir(configDir, { recursive: true });
+    await writeFile(j(configDir, 'project.json'), JSON.stringify(req.body, null, 2));
+    res.json({ success: true });
+  });
+
+  // Load project config for conductor
+  app.get('/api/conductor/config', async (_req: Request, res: Response) => {
+    const { join: j } = await import('path');
+    const { readFile: rf } = await import('fs/promises');
+    const { existsSync: ex } = await import('fs');
+    const configPath = j(baseDir, 'workspace', '.config', 'project.json');
+    if (ex(configPath)) {
+      try {
+        const data = JSON.parse(await rf(configPath, 'utf-8'));
+        return res.json(data);
+      } catch { /* fall through */ }
+    }
+    res.json({});
   });
 }

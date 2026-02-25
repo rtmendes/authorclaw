@@ -196,7 +196,7 @@ async function validateAndSave(filename: string, content: string, label: string)
 
 async function updateDashboard(phase: string, step: string, extra: any = {}): Promise<void> {
   try {
-    await fetch(`${API_BASE}/api/conductor/status`, {
+    const resp = await fetch(`${API_BASE}/api/conductor/status`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -213,6 +213,11 @@ async function updateDashboard(phase: string, step: string, extra: any = {}): Pr
         },
       }),
     });
+    const data = await resp.json() as any;
+    if (data.stopRequested) {
+      console.log('\n  🛑 Stop requested from dashboard — shutting down gracefully...');
+      process.exit(0);
+    }
   } catch { /* silent */ }
 }
 

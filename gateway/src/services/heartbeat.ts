@@ -68,6 +68,11 @@ export class HeartbeatService {
   private totalAutonomousSteps = 0;
   private totalAutonomousWords = 0;
 
+  // Reminder tracking
+  private lastReminderSent = 0; // timestamp
+  private reminderMilestones: Set<number> = new Set(); // word goal % milestones already sent today
+  private lastReminderDate: string | null = null; // for resetting milestones on new day
+
   constructor(config: Partial<HeartbeatConfig>, memory: MemoryService) {
     this.config = {
       intervalMinutes: config.intervalMinutes ?? 15,
@@ -256,6 +261,85 @@ export class HeartbeatService {
 
       this.todayWords = 0;
     }
+
+    // Check reminders (if enabled)
+    if (this.config.enableReminders) {
+      this.checkReminders(now, today);
+    }
+  }
+
+  /**
+   * Reminder engine — sends motivational nudges via WebSocket + Telegram.
+   * Max 1 reminder per hour to avoid spam.
+   *
+   * Three reminder types:
+   *  1. No writing today → gentle nudge after 10am
+   *  2. Word goal milestones → encouragement at 25%, 50%, 75%, 90%
+   *  3. Streak at risk → warning after 6pm if last writing was yesterday
+   */
+  private checkReminders(now: Date, today: string): void {
+    // Rate limit: max 1 reminder per hour
+    if (now.getTime() - this.lastReminderSent < 60 * 60 * 1000) return;
+
+    const hour = now.getHours();
+
+    // Reset milestones on new day
+    if (this.lastReminderDate !== today) {
+      this.reminderMilestones.clear();
+      this.lastReminderDate = today;
+    }
+
+    // ── Type 1: No writing today (after 10am) ──
+    if (hour >= 10 && this.todayWords === 0 && !this.reminderMilestones.has(0)) {
+      this.reminderMilestones.add(0);
+      this.sendReminder(
+        `📝 You haven't written anything today yet. ` +
+        `Your daily goal is ${this.config.dailyWordGoal.toLocaleString()} words — ` +
+        `even 100 words keeps the momentum going!`
+      );
+      return;
+    }
+
+    // ── Type 2: Word goal milestones ──
+    if (this.todayWords > 0 && this.config.dailyWordGoal > 0) {
+      const percent = Math.round((this.todayWords / this.config.dailyWordGoal) * 100);
+      const milestones = [25, 50, 75, 90, 100];
+
+      for (const milestone of milestones) {
+        if (percent >= milestone && !this.reminderMilestones.has(milestone)) {
+          this.reminderMilestones.add(milestone);
+          const messages: Record<number, string> = {
+            25: `🌱 25% of your daily goal — nice start! ${this.todayWords.toLocaleString()}/${this.config.dailyWordGoal.toLocaleString()} words`,
+            50: `🔥 Halfway there! ${this.todayWords.toLocaleString()}/${this.config.dailyWordGoal.toLocaleString()} words — keep pushing!`,
+            75: `💪 75% done! Only ${(this.config.dailyWordGoal - this.todayWords).toLocaleString()} words to go!`,
+            90: `🏁 Almost there! 90% of your daily goal — you've got this!`,
+            100: `🎉 Daily goal CRUSHED! ${this.todayWords.toLocaleString()} words today!` +
+              (this.streak > 0 ? ` 🔥 ${this.streak}-day streak!` : ''),
+          };
+          this.sendReminder(messages[milestone]);
+          return; // One reminder at a time
+        }
+      }
+    }
+
+    // ── Type 3: Streak at risk (after 6pm) ──
+    if (hour >= 18 && this.streak > 0 && this.todayWords === 0 && !this.reminderMilestones.has(-1)) {
+      this.reminderMilestones.add(-1); // -1 = streak warning sent
+      this.sendReminder(
+        `⚠️ Your ${this.streak}-day writing streak is at risk! ` +
+        `Write something before midnight to keep it alive.`
+      );
+      return;
+    }
+  }
+
+  /**
+   * Send a reminder via the broadcast channel (WebSocket + Telegram)
+   */
+  private sendReminder(message: string): void {
+    this.lastReminderSent = Date.now();
+    this.broadcast(`💓 ${message}`);
+    this.logAutonomous(`Reminder: ${message}`);
   }
 
   // ── Autonomous Wake Cycle ──
