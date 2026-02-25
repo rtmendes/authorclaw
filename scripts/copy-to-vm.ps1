@@ -8,7 +8,9 @@ $ErrorActionPreference = "Stop"
 # ── Configuration (adjust these paths to match your setup) ──
 $AuthorClawSource = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ParentDir        = Split-Path $AuthorClawSource
-$AuthorOSSource   = Join-Path $ParentDir "Author OS"
+# Author OS lives at Automations/Author OS (two levels up from repo root)
+$AutomationsDir   = Split-Path $ParentDir
+$AuthorOSSource   = Join-Path $AutomationsDir "Author OS"
 $SharedFolder     = Join-Path $ParentDir "vm-transfer"
 
 # Validate paths
