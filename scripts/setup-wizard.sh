@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════
-# AuthorClaw Setup Wizard v1.0
+# AuthorClaw Setup Wizard v3.0
 # The Secure AI Writing Agent — By Writing Secrets
 #
 # This wizard handles everything:
@@ -35,7 +35,7 @@ print_header() {
     echo ""
     echo -e "${PURPLE}  ╔═══════════════════════════════════════════╗${NC}"
     echo -e "${PURPLE}  ║                                           ║${NC}"
-    echo -e "${PURPLE}  ║${WHITE}${BOLD}       AuthorClaw Setup Wizard v1.0       ${NC}${PURPLE}║${NC}"
+    echo -e "${PURPLE}  ║${WHITE}${BOLD}       AuthorClaw Setup Wizard v3.0       ${NC}${PURPLE}║${NC}"
     echo -e "${PURPLE}  ║${DIM}       The Secure AI Writing Agent         ${NC}${PURPLE}║${NC}"
     echo -e "${PURPLE}  ║                                           ║${NC}"
     echo -e "${PURPLE}  ╚═══════════════════════════════════════════╝${NC}"
@@ -554,11 +554,10 @@ echo -e "    ${CYAN}cd ~/authorclaw && npx tsx gateway/src/index.ts${NC}"
 echo ""
 echo -e "  ${WHITE}Then open the dashboard:${NC} ${CYAN}http://localhost:3847${NC}"
 echo ""
-echo -e "  ${WHITE}The dashboard has 4 tabs:${NC}"
-echo -e "    ${GREEN}Settings${NC}        — API keys, models, budget, Telegram"
-echo -e "    ${GREEN}Project Config${NC}  — Book genre, title, chapters, characters"
-echo -e "    ${GREEN}Goals${NC}           — Autonomous tasks (plan, research, write, revise, promote)"
-echo -e "    ${GREEN}Live Progress${NC}   — Track book conductor progress in real-time"
+echo -e "  ${WHITE}The dashboard has 3 tabs:${NC}"
+echo -e "    ${GREEN}Home${NC}            — Chat, morning briefing, quick research, agent report"
+echo -e "    ${GREEN}Projects${NC}        — Create & track autonomous writing projects (including full novel pipelines)"
+echo -e "    ${GREEN}Settings${NC}        — API keys, models, budget, Telegram, research domains"
 echo ""
 echo -e "  ────────────────────────────────────────"
 echo ""
@@ -584,12 +583,13 @@ Here's what AuthorClaw is:
 - Start command: cd ~/authorclaw && npx tsx gateway/src/index.ts
 - Connects to AI providers: Ollama (local), Google Gemini (free), Anthropic Claude, OpenAI, DeepSeek
 - Runs on port 3847 (localhost only)
-- Has a dashboard at http://localhost:3847 with 4 tabs: Settings, Project Config, Goals, Live Progress
-- Has a goal-based autonomy system (planning, research, writing, revision, promotion, analysis)
+- Has a dashboard at http://localhost:3847 with 3 tabs: Home, Projects, Settings
+- Has a project-based autonomy system (planning, research, writing, revision, promotion, analysis)
+- Has a novel pipeline that writes complete books (30+ steps: premise, bible, outline, chapters, revision, DOCX assembly)
 - Has a Telegram bot integration (configurable from dashboard)
+- Has real web search with domain allowlisting for research
 - Stores data in a workspace/ directory
 - Has encrypted vault for API keys (AES-256-GCM)
-- Can write complete novels autonomously via the book conductor script
 
 My operating system is: [FILL IN: Windows / macOS / Linux]
 My Node.js version is: [FILL IN: run "node -v" in terminal]

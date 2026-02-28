@@ -26,7 +26,7 @@ Tell it what you want. It figures out the steps, picks the right skills and tool
 - **Market** — Blurbs, ad copy, email sequences, social media content
 - **Analyze** — Voice profiling (47 markers), pacing heatmaps, tension mapping
 - **Format** — Export manuscripts to agent-ready DOCX, KDP PDF, EPUB, Markdown
-- **Manage** — Track projects, word counts, goals, deadlines
+- **Manage** — Track projects, word counts, deadlines
 - **Ingest Tools** — Read source code of any tool and create a new skill from it
 
 ---
@@ -40,7 +40,7 @@ Tell it what you want. It figures out the steps, picks the right skills and tool
 5. **Everything is logged** — universal activity feed tracks all agent actions in real-time
 
 ```
-User: "/goal write a full tech-thriller about rogue AI in aviation"
+User: "/project write a full tech-thriller about rogue AI in aviation"
 
 AuthorClaw: "Planning... 12 steps identified"
   Step 1: Develop premise and logline        ✅ (~800 words)
@@ -50,7 +50,7 @@ AuthorClaw: "Planning... 12 steps identified"
   Step 5: Outline all chapters               ✅ (~3,500 words)
   Step 6: Write Chapter 1                    ✅ (~3,200 words)
   ...
-  Step 12: Final assembly                    ✅
+  Step 12: Final assembly + DOCX export      ✅
 
   "All 12 steps complete! Files saved to workspace/projects/"
 ```
@@ -74,7 +74,7 @@ npx tsx gateway/src/index.ts
 #    (Free tier — the whole book costs $0)
 
 # 4. Home tab chat → "Write me a thriller about rogue AI" → Send
-#    OR send /goal to your Telegram bot
+#    OR send /project to your Telegram bot
 ```
 
 > **First run?** AuthorClaw auto-generates a vault encryption key and saves it to `.env`.
@@ -88,7 +88,7 @@ See [QUICKSTART.md](QUICKSTART.md) for the full setup guide.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    AUTHORCLAW v2 ARCHITECTURE                │
+│                    AUTHORCLAW v3 ARCHITECTURE                │
 │                                                             │
 │  ┌───────────┐   ┌─────────────────┐   ┌────────────────┐  │
 │  │ Channels  │   │    Gateway       │   │  AI Router     │  │
@@ -100,21 +100,21 @@ See [QUICKSTART.md](QUICKSTART.md) for the full setup guide.
 │  └───────────┘   └─────────────────┘   │ OpenAI ($$)    │  │
 │                                         └────────────────┘  │
 │  ┌───────────┐   ┌─────────────────┐   ┌────────────────┐  │
-│  │ Soul      │   │ Goal Engine     │   │ Skills (25+)   │  │
+│  │ Soul      │   │ Project Engine  │   │ Skills (25+)   │  │
 │  │           │   │                  │   │                │  │
 │  │ SOUL.md   │   │ Dynamic AI Plan │   │ Core           │  │
-│  │ STYLE.md  │   │ Auto-Execute    │   │ Author (16)    │  │
-│  │ VOICE.md  │   │ File Saving     │   │ Marketing (4)  │  │
-│  │           │   │ Activity Log    │   │ Premium (10)   │  │
+│  │ STYLE.md  │   │ Novel Pipeline  │   │ Author (16)    │  │
+│  │ VOICE.md  │   │ Auto-Execute    │   │ Marketing (4)  │  │
+│  │           │   │ DOCX Assembly   │   │ Premium (6)    │  │
 │  └───────────┘   └─────────────────┘   └────────────────┘  │
 │                                                             │
 │  ┌───────────┐   ┌─────────────────┐   ┌────────────────┐  │
-│  │ Security  │   │ Memory          │   │ Author OS      │  │
+│  │ Security  │   │ Smart Agent     │   │ Research Gate  │  │
 │  │           │   │                  │   │                │  │
-│  │ Vault     │   │ Conversations   │   │ Workflow Engine │  │
-│  │ Sandbox   │   │ Book Bible      │   │ Book Bible     │  │
-│  │ Audit     │   │ Voice Profile   │   │ Manuscript     │  │
-│  │ Injection │   │ Summaries       │   │ Format Factory │  │
+│  │ Vault     │   │ Priority Scoring│   │ Web Search     │  │
+│  │ Sandbox   │   │ Self-Improve    │   │ HTML Extraction│  │
+│  │ Audit     │   │ Agent Journal   │   │ Domain Allowlist│  │
+│  │ Injection │   │ Sub-Projects    │   │ Rate Limiting  │  │
 │  └───────────┘   └─────────────────┘   └────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -143,20 +143,20 @@ Connect a Telegram bot to control AuthorClaw from your phone:
 
 | Command | What It Does |
 |---------|-------------|
-| `/goal [task]` | Tell AuthorClaw what to do — it plans steps and executes autonomously |
-| `/write [idea]` | Shortcut for writing goals — plans a book from your idea |
-| `/goals` | List all goals with status |
+| `/project [task]` | Tell AuthorClaw what to do — it plans steps and executes autonomously |
+| `/novel [idea]` | Create a full novel pipeline project from your idea (30+ steps) |
+| `/projects` | List all projects with status |
 | `/status` | Quick status check |
-| `/research [topic]` | Research a topic, save results to file |
+| `/research [topic]` | Research a topic using real web search (allowlisted domains) |
 | `/files [folder]` | List files in your workspace |
 | `/read [file]` | Preview a file's contents |
-| `/stop` | Pause the active goal |
-| `continue` | Resume a paused goal |
+| `/stop` | Pause the active project |
+| `continue` | Resume a paused project |
 
 ### Example Session
 
 ```
-You:      /goal write a full novel about rogue AI in aviation
+You:      /project write a full novel about rogue AI in aviation
 AuthorClaw: Planning "write a full novel about rogue AI in aviation"...
 AuthorClaw: Planned 15 steps. Running autonomously...
 AuthorClaw: ✅ 1/15: Develop premise (~800 words)
@@ -174,11 +174,9 @@ AuthorClaw: 🎉 All 15 steps complete!
 
 Open `http://localhost:3847` to access the web dashboard:
 
-- **Home** — Morning briefing, chat with AuthorClaw, recent activity feed
-- **Goals** — Create, track, and auto-execute writing goals
-- **Live Progress** — Real-time conductor/goal progress and activity log
-- **Settings** — API keys, AI providers, Ollama, budgets, Telegram, heartbeat
-- **Project Config** — Book title, genre, POV, premise, and project settings
+- **Home** — Morning briefing, chat with AuthorClaw, quick research, agent report, recent activity feed
+- **Projects** — Create, track, and auto-execute writing projects (including full novel pipelines with 30+ steps)
+- **Settings** — API keys, AI providers, Ollama, budgets, Telegram, heartbeat, research domains
 
 ---
 
@@ -192,7 +190,7 @@ When you give AuthorClaw a task, it doesn't use hardcoded templates. Instead:
 4. Each step is executed with that skill's full content injected into the AI's context
 5. Results from earlier steps are chained into later steps for continuity
 
-If AI planning fails, the system falls back to template-based planning (8 goal types with pre-built step sequences).
+If AI planning fails, the system falls back to template-based planning (8 project types with pre-built step sequences). For novel pipelines, a specialized template generates 30+ steps covering premise, book bible, outline, chapter writing (with word count targets), revision, and final DOCX assembly.
 
 ---
 
@@ -212,18 +210,14 @@ Skills are automatically matched by keyword triggers and injected into the AI's 
 
 ### Premium Skills Bundle
 
-The **AuthorClaw Premium Skills Bundle** adds 10 advanced capabilities — available on our [Ko-Fi store](https://ko-fi.com/s/4e24f1dfa5):
+The **AuthorClaw Premium Skills Bundle** adds 6 advanced capabilities — available on our [Ko-Fi store](https://ko-fi.com/s/4e24f1dfa5):
 
-- **Ghostwriter Pro** — Scene generation, pacing analysis, tension mapping, deep write mode, dialogue polish
-- **Series Architect** — Multi-book series planning, continuity engine, thread tracker, revenue projections
-- **Book Launch Machine** — 60-day launch automation, ad copy factory, email sequences, social media calendar
-- **First Chapter Hook** — Hook scoring, opening line workshop, Look Inside optimizer, genre templates
-- **Comp Title Finder** — Comparable title discovery, market positioning, category strategy
-- **Dictation Cleanup** — Speech-to-text cleanup with 3 intensity levels, voice-aware processing
-- **Sensitivity Reader** — Representation review, cultural accuracy, bias detection with smart context
-- **Read Aloud** — Free TTS manuscript reader with ear-edit revision workflow (Piper TTS)
-- **Narrative Voice Coach** — 47-marker voice analysis, consistency checking, style coaching
-- **Writing Secrets Integration** — Bridges for Book Bible Engine, Workflow Engine, and StyleClone Pro
+- **Ghostwriter Pro** — A full-stack AI writing partner. Scene generation with deep write mode and multi-pass revision. Pacing analysis, tension mapping, dialogue polish, and style consistency checks. Handles everything from first draft to final polish.
+- **Series Architect** — Multi-book series planning and continuity engine. Story thread tracker, timeline management, character arc plotting across books, and series revenue projection tools. Essential for anyone writing a series.
+- **Book Launch Machine** — Complete 60-day book launch automation. Ad copy factory (Amazon, Facebook, BookBub), email marketing sequences, social media content calendar, and launch day checklists. Turns your release into an event.
+- **Dictation Cleanup Pro** — Speech-to-text cleanup with 3 intensity levels. Understands author voice patterns and preserves intentional style choices. Cleans up dictation artifacts, fixes punctuation, and polishes prose while keeping your voice intact.
+- **AuthorScribe Audio** — Text-to-speech audio generation using Microsoft Edge neural voices (300+ voices, 40+ languages). Generate audio versions of chapters, scenes, or full manuscripts. Great for self-editing by ear and creating audio content. *Personal and non-commercial use only.*
+- **Builder's Guide** *(Bonus)* — Step-by-step documentation for customizing and extending AuthorClaw. Build your own skills, add new AI providers, create custom workflows, and tailor the agent to your exact writing process.
 
 Install: copy the skill folders to `skills/premium/` and restart. See `skills/premium/README.md` for details.
 
@@ -239,19 +233,20 @@ authorclaw/
 │   ├── api/routes.ts     # REST API endpoints
 │   ├── bridges/          # Telegram, Discord bridges
 │   ├── security/         # Vault, audit, sandbox, injection detection
-│   ├── services/         # Memory, soul, goals, activity log, heartbeat
+│   ├── services/         # Memory, soul, projects, research, activity log, heartbeat
 │   └── skills/loader.ts  # Skill loading and matching
 ├── skills/               # Skill definitions (SKILL.md files)
 │   ├── core/             # System skills (full-pipeline, etc.)
 │   ├── author/           # Writing skills (16)
 │   ├── marketing/        # Marketing skills (4)
-│   └── premium/          # Premium skill packs (10)
+│   └── premium/          # Premium skill packs (6)
 ├── dashboard/dist/       # Web dashboard (single HTML file)
 ├── workspace/            # Working directory
 │   ├── soul/             # SOUL.md, STYLE-GUIDE.md, VOICE-PROFILE.md
 │   ├── memory/           # Conversations, book bible, summaries
-│   ├── projects/         # Goal output files organized by project
+│   ├── projects/         # Project output files organized by project
 │   ├── research/         # Research output files
+│   ├── .agent/           # Agent journal, self-improve logs
 │   ├── .activity/        # Universal activity log (JSONL)
 │   └── .audit/           # Security audit log (JSONL)
 ├── config/               # Configuration files
@@ -272,7 +267,7 @@ AuthorClaw security features:
 - **Audit**: Daily JSONL logs with categories (message, security, error, connection)
 - **Injection Detection**: Pattern matching for prompt injection attempts
 - **Rate Limiting**: Per-channel rate limits
-- **Research Gate**: 50+ whitelisted domains for internet access
+- **Research Gate**: Real web search + HTML extraction, 50+ allowlisted domains, 60 req/hr rate limit
 - **Localhost Only**: Server binds to 127.0.0.1 (no external access)
 
 ---
