@@ -4,7 +4,7 @@
  * Domain allowlist prevents access to banking, social login, admin panels
  */
 
-import { readFile } from 'fs/promises';
+import { readFile, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { AuditLog } from '../security/audit.js';
 
@@ -35,6 +35,18 @@ export class ResearchGate {
 
   getAllowedDomains(): string[] {
     return Array.from(this.allowedDomains);
+  }
+
+  /**
+   * Replace the domain allowlist and persist to disk.
+   */
+  async setDomains(domains: string[]): Promise<void> {
+    this.allowedDomains = new Set(domains.map(d => d.trim().toLowerCase()).filter(Boolean));
+    const data = {
+      description: 'Approved domains for AuthorClaw research. Add domains as needed for your writing projects.',
+      domains: Array.from(this.allowedDomains),
+    };
+    await writeFile(this.allowlistPath, JSON.stringify(data, null, 2), 'utf-8');
   }
 
   isAllowed(url: string): boolean {

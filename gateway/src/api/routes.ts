@@ -1102,6 +1102,32 @@ ${sourceCode.substring(0, 15000)}
   // Internet Research (web search + content extraction)
   // ═══════════════════════════════════════════════════════════
 
+  // ── Research Domain Management ──
+  app.get('/api/research/domains', (_req: Request, res: Response) => {
+    const research = services.research;
+    if (!research) {
+      return res.status(503).json({ error: 'Research gate not initialized' });
+    }
+    res.json({ domains: research.getAllowedDomains() });
+  });
+
+  app.post('/api/research/domains', async (req: Request, res: Response) => {
+    const research = services.research;
+    if (!research) {
+      return res.status(503).json({ error: 'Research gate not initialized' });
+    }
+    const { domains } = req.body;
+    if (!Array.isArray(domains)) {
+      return res.status(400).json({ error: 'domains must be an array of strings' });
+    }
+    try {
+      await research.setDomains(domains);
+      res.json({ success: true, count: research.getAllowedDomainCount() });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to save domains: ' + String(err) });
+    }
+  });
+
   app.post('/api/research', async (req: Request, res: Response) => {
     const research = services.research;
     if (!research) {

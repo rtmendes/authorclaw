@@ -874,12 +874,21 @@ function saveHeartbeatSettings() {
   return Promise.all(promises);
 }
 
-// ── Save Research Domains ──
+// ── Research Domains ──
+function loadResearchDomains() {
+  api('GET', '/api/research/domains').then(function(data) {
+    var el = document.getElementById('researchDomains');
+    if (!el._userEdited && data.domains && data.domains.length > 0) {
+      el.value = data.domains.join('\n');
+    }
+  }).catch(function() {});
+}
+
 document.getElementById('btnSaveDomains').addEventListener('click', function() {
   var raw = document.getElementById('researchDomains').value.trim();
   var domains = raw ? raw.split('\n').map(function(d) { return d.trim(); }).filter(Boolean) : [];
-  api('POST', '/api/config/update', { path: 'security.researchDomains', value: domains }).then(function() {
-    showToast('Research domains saved!', 'success');
+  api('POST', '/api/research/domains', { domains: domains }).then(function(data) {
+    showToast('Research domains saved! (' + data.count + ' domains)', 'success');
   }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
 });
 
@@ -1793,6 +1802,7 @@ loadProjectTemplates();
 loadProjects();
 loadAuthorOS();
 loadAutonomousStatus();
+loadResearchDomains();
 loadHomeBriefing();
 loadHomeActivity();
 loadAgentReport();
