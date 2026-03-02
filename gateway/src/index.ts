@@ -36,6 +36,7 @@ import { SkillLoader } from './skills/loader.js';
 import { AuthorOSService } from './services/author-os.js';
 import { TTSService } from './services/tts.js';
 import { ProjectEngine } from './services/projects.js';
+import { PersonaService } from './services/personas.js';
 import { TelegramBridge } from './bridges/telegram.js';
 import { DiscordBridge } from './bridges/discord.js';
 import { createAPIRoutes } from './api/routes.js';
@@ -76,6 +77,7 @@ class AuthorClawGateway {
   private skills!: SkillLoader;
   private authorOS!: AuthorOSService;
   private tts!: TTSService;
+  private personas!: PersonaService;
   private projectEngine!: ProjectEngine;
   private telegram?: TelegramBridge;
   private discord?: DiscordBridge;
@@ -234,7 +236,12 @@ class AuthorClawGateway {
     this.tts = new TTSService(join(ROOT_DIR, 'workspace'));
     await this.tts.initialize();
 
-    // ── Phase 6d: Project Engine ──
+    // ── Phase 6d: Author Personas ──
+    this.personas = new PersonaService(join(ROOT_DIR, 'workspace'));
+    await this.personas.initialize();
+    console.log(`  ✓ Personas: ${this.personas.getCount()} author persona(s) loaded`);
+
+    // ── Phase 6e: Project Engine ──
     this.projectEngine = new ProjectEngine(this.authorOS, ROOT_DIR);
     // Wire AI capabilities for dynamic planning
     this.projectEngine.setAI(
@@ -388,7 +395,7 @@ class AuthorClawGateway {
         const followUpDesc = `Follow-up tasks after completing the first draft of "${originalTitle}". ` +
           `Prepare for beta readers, write query letter, create synopsis.`;
 
-        const project = this.projectEngine.createProject('promotion', followUpTitle, followUpDesc, {
+        const project = this.projectEngine.createProject('book-launch', followUpTitle, followUpDesc, {
           parentProjectId: originalProjectId,
           parentTitle: originalTitle,
           autoCreated: true,
@@ -413,12 +420,20 @@ class AuthorClawGateway {
             prompt: `Generate a creative, inspiring writing prompt for an author. Consider diverse genres and styles. The prompt should:\n- Be specific enough to start writing immediately\n- Include a character, setting, and conflict/situation\n- Be 2-3 sentences max\n- Feel fresh and unexpected, not cliché\n\nReturn ONLY the writing prompt, nothing else.`,
           },
           {
-            label: 'Workspace productivity report',
-            prompt: `You are a helpful writing assistant. Generate a brief, motivating daily check-in message for an author. Include:\n- An encouraging observation about consistency\n- One specific, actionable writing tip they can use today\n- A thought-provoking question about their current work\n\nKeep it under 100 words. Be warm but not cheesy. Return ONLY the message.`,
+            label: 'Daily word count & project report',
+            prompt: `You are AuthorClaw, an autonomous writing agent. Generate a brief daily status report. Include:\n- A motivating observation about writing consistency\n- One specific, actionable writing or productivity tip\n- A suggestion for what the author should work on next (new project, revision pass, etc.)\n\nKeep it under 100 words. Be warm, professional, and action-oriented. Return ONLY the report.`,
           },
           {
             label: 'Story idea brainstorm',
-            prompt: `Brainstorm 3 unique story ideas that would make compelling novels. For each idea provide:\n- A one-line logline\n- The genre\n- What makes it fresh/unique\n\nMake them diverse — different genres, tones, and themes. Be creative and specific. No clichés.`,
+            prompt: `Brainstorm 3 unique story ideas that would make compelling, commercially viable novels. For each idea provide:\n- A one-line logline\n- The genre and subgenre\n- Target audience\n- What makes it fresh/marketable\n\nFocus on genres with strong commercial potential (romance, thriller, fantasy, mystery). Be creative and specific. No clichés.`,
+          },
+          {
+            label: 'Romance premise generator',
+            prompt: `Generate a compelling romance novel premise with strong commercial appeal. Include:\n- A catchy one-line hook\n- The romance subgenre (contemporary, historical, paranormal, etc.)\n- Hero and heroine archetypes (e.g., grumpy/sunshine, enemies-to-lovers)\n- The central conflict keeping them apart\n- The setting\n- 3 popular tropes this hits\n\nMake it feel fresh but familiar to romance readers. Return ONLY the premise.`,
+          },
+          {
+            label: 'Pipeline health check',
+            prompt: `You are AuthorClaw's maintenance system. Generate a brief system health note with:\n- A reminder to check on any paused or stuck projects\n- A tip for optimizing the book production pipeline\n- A suggestion for maintaining consistency across pen name personas\n\nKeep it under 80 words. Be practical and actionable. Return ONLY the note.`,
           },
         ];
 
@@ -928,6 +943,7 @@ class AuthorClawGateway {
       skills: this.skills,
       authorOS: this.authorOS,
       tts: this.tts,
+      personas: this.personas,
     };
   }
 

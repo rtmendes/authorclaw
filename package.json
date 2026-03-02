@@ -1,7 +1,7 @@
 {
   "name": "authorclaw",
-  "version": "3.0.0",
-  "description": "The Autonomous AI Writing Agent — An OpenClaw fork built for authors. 37+ skills, autonomous mode, Telegram control, encrypted vault, soul-driven style.",
+  "version": "4.0.0",
+  "description": "The Autonomous AI Writing Agent — 6 book production phases, author personas, pipeline mode, 21-step deep revision, KDP-ready export. Built for authors who scale.",
   "main": "gateway/src/index.ts",
   "type": "module",
   "scripts": {

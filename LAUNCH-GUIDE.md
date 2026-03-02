@@ -85,10 +85,12 @@ Or set up a reverse proxy (Nginx/Caddy) with HTTPS + auth for public access.
 |---|---|
 | Main code | `gateway/src/index.ts` |
 | Dashboard | `dashboard/dist/index.html` |
-| Skills | `skills/{core,author,marketing,premium}/` |
+| Skills | `skills/{core,author,marketing}/` (19 active, rest in `_archived/`) |
 | Config | `config/default.json` (public), `config/user.json` (private) |
 | Vault (encrypted keys) | `config/.vault/vault.enc` |
 | Project outputs | `workspace/projects/` |
+| Author Personas | `workspace/.config/personas.json` |
+| Project state | `workspace/.config/projects-state.json` |
 | Soul system | `workspace/soul/` |
 | Memory/Bible | `workspace/memory/` |
 | Self-improvement | `workspace/.agent/` |

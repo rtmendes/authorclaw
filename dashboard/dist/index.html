@@ -5,612 +5,847 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AuthorClaw Dashboard</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #1a1a2e; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+/* ================================================================
+   AuthorClaw Dashboard v4.0.0 — Single-file SPA
+   ================================================================ */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
-  /* Header */
-  .header { background: #16213e; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #0f3460; flex-wrap: wrap; gap: 8px; }
-  .header h1 { font-size: 22px; white-space: nowrap; }
-  .header .version { color: #7f8c8d; font-size: 13px; }
-  .header .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 8px; }
-  .status-dot.ok { background: #2ecc71; }
-  .status-dot.err { background: #e74c3c; }
-  .status-dot.warn { background: #f39c12; }
+:root {
+  --bg: #1a1a2e;
+  --card: #16213e;
+  --border: #0f3460;
+  --accent: #e67e22;
+  --accent-hover: #d35400;
+  --text: #e0e0e0;
+  --muted: #7f8c8d;
+  --success: #27ae60;
+  --danger: #c0392b;
+  --info: #2980b9;
+  --warn: #f39c12;
+  --sidebar-w: 220px;
+  --sidebar-collapsed: 60px;
+}
 
-  /* Tabs */
-  .tabs { display: flex; background: #16213e; border-bottom: 1px solid #0f3460; overflow-x: auto; }
-  .tab { padding: 12px 24px; cursor: pointer; color: #7f8c8d; font-weight: 600; border-bottom: 3px solid transparent; transition: all 0.2s; white-space: nowrap; flex-shrink: 0; }
-  .tab:hover { color: #bdc3c7; }
-  .tab.active { color: #e0e0e0; border-bottom-color: #e67e22; }
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  display: flex;
+  overflow: hidden;
+}
 
-  /* Content */
-  .content { max-width: 1100px; margin: 24px auto; padding: 0 24px; }
-  .panel { display: none; }
-  .panel.active { display: block; }
+/* ── Sidebar ── */
+.sidebar {
+  width: var(--sidebar-w);
+  min-width: var(--sidebar-w);
+  height: 100vh;
+  background: var(--card);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.3s ease, min-width 0.3s ease;
+  overflow: hidden;
+  z-index: 100;
+}
+.sidebar-brand {
+  padding: 20px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  min-height: 64px;
+}
+.sidebar-brand .brand-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+  width: 28px;
+  text-align: center;
+}
+.sidebar-brand .brand-text {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.5px;
+}
+.sidebar-brand .brand-ver {
+  font-size: 10px;
+  color: var(--muted);
+  display: block;
+  margin-top: 1px;
+}
+.sidebar-nav {
+  flex: 1;
+  padding: 12px 0;
+  overflow-y: auto;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 14px;
+  transition: all 0.2s;
+  border-left: 3px solid transparent;
+  white-space: nowrap;
+}
+.nav-item:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+.nav-item.active { color: var(--text); border-left-color: var(--accent); background: rgba(230,126,34,0.08); }
+.nav-item .nav-icon { font-size: 18px; flex-shrink: 0; width: 22px; text-align: center; }
+.nav-item .nav-label { overflow: hidden; }
 
-  /* Cards */
-  .card { background: #16213e; border-radius: 10px; padding: 20px; margin-bottom: 18px; border: 1px solid #0f3460; }
-  .card h3 { font-size: 15px; color: #e67e22; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
+.sidebar-footer {
+  padding: 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.heartbeat-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+  transition: background 0.3s;
+}
+.heartbeat-dot.ok { background: var(--success); animation: hb-pulse 2s infinite; }
+.heartbeat-dot.err { background: var(--danger); }
+.heartbeat-dot.warn { background: var(--warn); }
+@keyframes hb-pulse { 0%,100%{ opacity:1; } 50%{ opacity:0.4; } }
 
-  /* Forms */
-  .form-row { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; flex-wrap: wrap; }
-  .form-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
-  .form-group label { font-size: 13px; color: #bdc3c7; font-weight: 600; }
-  .form-group-inline { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  select, input[type="password"], input[type="text"], input[type="number"], textarea {
-    background: #1a1a2e; border: 1px solid #0f3460; color: #e0e0e0; padding: 8px 12px;
-    border-radius: 6px; font-size: 14px; font-family: inherit; width: 100%;
+/* Sidebar collapse for mobile */
+@media (max-width: 768px) {
+  .sidebar {
+    width: var(--sidebar-collapsed);
+    min-width: var(--sidebar-collapsed);
   }
-  select { min-width: 180px; width: auto; }
-  input[type="password"] { flex: 1; }
-  textarea { resize: vertical; min-height: 60px; }
-  button { background: #e67e22; color: #fff; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px; transition: background 0.2s; }
-  button:hover { background: #d35400; }
-  button:disabled { background: #555; cursor: not-allowed; }
-  button.danger { background: #c0392b; }
-  button.danger:hover { background: #96281b; }
-  button.secondary { background: #2c3e50; }
-  button.secondary:hover { background: #34495e; }
-  button.success { background: #27ae60; }
-  button.success:hover { background: #1e8449; }
-
-  /* Toggle switch */
-  .toggle-wrap { display: flex; align-items: center; gap: 10px; }
-  .toggle { position: relative; width: 44px; height: 24px; cursor: pointer; }
-  .toggle input { opacity: 0; width: 0; height: 0; }
-  .toggle .slider { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #2c3e50; border-radius: 24px; transition: 0.3s; }
-  .toggle .slider:before { content: ''; position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px; background: #e0e0e0; border-radius: 50%; transition: 0.3s; }
-  .toggle input:checked + .slider { background: #e67e22; }
-  .toggle input:checked + .slider:before { transform: translateX(20px); }
-
-  /* Key list */
-  .key-list { display: flex; flex-wrap: wrap; gap: 8px; }
-  .key-tag { background: #1a1a2e; border: 1px solid #0f3460; padding: 6px 12px; border-radius: 20px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
-  .key-tag .del { cursor: pointer; color: #e74c3c; font-weight: bold; }
-
-  /* Provider list */
-  .provider { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #0f3460; }
-  .provider:last-child { border: none; }
-  .tier { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
-  .tier.free { background: #27ae60; color: #fff; }
-  .tier.cheap { background: #f39c12; color: #fff; }
-  .tier.paid { background: #8e44ad; color: #fff; }
-
-  /* Test result */
-  .test-result { margin-top: 10px; background: #1a1a2e; border-radius: 6px; padding: 12px; font-size: 13px; max-height: 200px; overflow-y: auto; display: none; white-space: pre-wrap; }
-
-  /* Error / success banners */
-  .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; z-index: 9999; animation: slideIn 0.3s ease; max-width: 400px; }
-  .toast.success { background: #27ae60; color: #fff; }
-  .toast.error { background: #c0392b; color: #fff; }
-  .toast.info { background: #2980b9; color: #fff; }
-  @keyframes slideIn { from { transform: translateX(100px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-
-  /* Progress bar */
-  .progress-bar { background: #1a1a2e; border-radius: 10px; height: 28px; overflow: hidden; position: relative; }
-  .progress-fill { background: linear-gradient(90deg, #e67e22, #f39c12); height: 100%; border-radius: 10px; transition: width 0.5s ease; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; min-width: 40px; }
-
-  /* Chapter grid */
-  .chapter-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
-  .chapter-box { aspect-ratio: 1; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; transition: all 0.3s; }
-  .chapter-box.pending { background: #2c3e50; color: #7f8c8d; }
-  .chapter-box.writing { background: #2980b9; color: #fff; animation: pulse 1.5s infinite; }
-  .chapter-box.drafted { background: #27ae60; color: #fff; }
-  .chapter-box.revised { background: #8e44ad; color: #fff; }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
-
-  /* Stats row */
-  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
-  .stat { background: #16213e; border: 1px solid #0f3460; border-radius: 10px; padding: 16px; text-align: center; }
-  .stat .value { font-size: 28px; font-weight: 700; color: #e67e22; }
-  .stat .label { font-size: 12px; color: #7f8c8d; margin-top: 4px; }
-
-  /* Log entries */
-  .log-entry { padding: 10px 0; border-bottom: 1px solid #0f3460; font-size: 13px; }
-  .log-entry:last-child { border: none; }
-  .log-time { color: #7f8c8d; font-size: 11px; }
-  .log-phase { display: inline-block; background: #0f3460; color: #e67e22; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; margin-left: 6px; }
-  .log-text { margin-top: 4px; line-height: 1.5; color: #e0e0e0; }
-  .log-narration { margin-top: 4px; line-height: 1.5; color: #bdc3c7; font-style: italic; border-left: 3px solid #e67e22; padding-left: 10px; }
-
-  /* Phase indicator */
-  .phase-banner { background: linear-gradient(135deg, #0f3460, #16213e); border: 2px solid #e67e22; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 18px; }
-  .phase-banner .phase-name { font-size: 22px; font-weight: 700; }
-  .phase-banner .phase-step { font-size: 14px; color: #bdc3c7; margin-top: 6px; }
-  .phase-banner .phase-model { font-size: 12px; color: #e67e22; margin-top: 4px; }
-
-  .idle-message { text-align: center; padding: 60px 20px; color: #7f8c8d; }
-  .idle-message h2 { font-size: 20px; margin-bottom: 10px; }
-
-  .stop-section { text-align: center; margin-top: 18px; padding: 16px; background: #1a1a2e; border-radius: 8px; border: 1px dashed #0f3460; }
-  .stop-section p { color: #7f8c8d; font-size: 13px; margin-top: 8px; }
-
-  /* Project cards */
-  .project-template { background: #1a1a2e; border: 1px solid #0f3460; border-radius: 10px; padding: 16px; cursor: pointer; transition: all 0.2s; }
-  .project-template:hover { border-color: #e67e22; transform: translateY(-2px); }
-  .project-template .gt-title { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
-  .project-template .gt-desc { font-size: 13px; color: #7f8c8d; }
-  .project-template .gt-steps { font-size: 12px; color: #e67e22; margin-top: 6px; }
-  .project-templates-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
-
-  .project-item { background: #1a1a2e; border: 1px solid #0f3460; border-radius: 10px; padding: 16px; margin-bottom: 10px; }
-  .project-item .gi-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-  .project-item .gi-title { font-weight: 700; font-size: 15px; }
-  .project-item .gi-status { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
-  .gi-status.pending { background: #2c3e50; color: #7f8c8d; }
-  .gi-status.active { background: #2980b9; color: #fff; }
-  .gi-status.paused { background: #f39c12; color: #fff; }
-  .gi-status.completed { background: #27ae60; color: #fff; }
-  .gi-status.failed { background: #c0392b; color: #fff; }
-  .project-item .gi-progress { margin: 8px 0; }
-  .project-item .gi-steps { font-size: 12px; color: #7f8c8d; }
-  .project-item .gi-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-  .project-item .gi-actions button { font-size: 12px; padding: 5px 12px; }
-
-  .step-list { margin-top: 10px; }
-  .step-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #0f3460; font-size: 13px; }
-  .step-item:last-child { border: none; }
-  .step-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-  .step-dot.pending { background: #2c3e50; }
-  .step-dot.active { background: #2980b9; animation: pulse 1.5s infinite; }
-  .step-dot.completed { background: #27ae60; }
-  .step-dot.skipped { background: #7f8c8d; }
-  .step-dot.failed { background: #c0392b; }
-
-  /* Responsive */
-  @media (max-width: 768px) {
-    .header { padding: 12px 16px; }
-    .header h1 { font-size: 18px; }
-    .content { padding: 0 12px; margin: 12px auto; }
-    .tab { padding: 10px 16px; font-size: 13px; }
-    .stats { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-    .stat .value { font-size: 22px; }
-    .chapter-grid { grid-template-columns: repeat(5, 1fr); gap: 4px; }
-    .chapter-box { font-size: 12px; }
-    .form-group-inline { grid-template-columns: 1fr; }
-    .form-row { flex-direction: column; align-items: stretch; }
-    .form-row select { min-width: 100%; }
-    .project-templates-grid { grid-template-columns: 1fr; }
+  .sidebar .brand-text, .sidebar .brand-ver, .sidebar .nav-label, .sidebar .footer-label {
+    display: none;
   }
+  .nav-item { padding: 14px 0; justify-content: center; gap: 0; }
+  .nav-item .nav-icon { width: auto; }
+  .sidebar-brand { justify-content: center; padding: 16px 0; }
+  .sidebar-footer { justify-content: center; padding: 12px 0; }
+  .sidebar-footer .footer-label { display: none; }
+}
 
-  @media (max-width: 480px) {
-    .stats { grid-template-columns: 1fr 1fr; }
-    .chapter-grid { grid-template-columns: repeat(5, 1fr); gap: 3px; }
-    .tab { padding: 8px 10px; font-size: 12px; }
-  }
+/* ── Main Content Area ── */
+.main {
+  flex: 1;
+  height: 100vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.main-header {
+  padding: 16px 28px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg);
+  min-height: 56px;
+  flex-shrink: 0;
+}
+.main-header h2 { font-size: 20px; font-weight: 700; }
+.main-header .header-right { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--muted); }
 
-  /* Section divider */
-  .section-divider { border: none; border-top: 1px solid #0f3460; margin: 16px 0; }
+.main-body {
+  flex: 1;
+  padding: 24px 28px;
+  overflow-y: auto;
+}
 
-  /* Inline hint text */
-  .hint { font-size: 12px; color: #7f8c8d; margin-top: 4px; }
+/* ── Panels ── */
+.panel { display: none; animation: panelFade 0.25s ease; }
+.panel.active { display: block; }
+@keyframes panelFade { from { opacity: 0; } to { opacity: 1; } }
 
-  /* Chat panel */
-  .chat-container { display: flex; flex-direction: column; height: 400px; background: #1a1a2e; border: 1px solid #0f3460; border-radius: 10px; overflow: hidden; }
-  .chat-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
-  .chat-msg { max-width: 80%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-wrap: break-word; white-space: pre-wrap; }
-  .chat-msg.user { align-self: flex-end; background: #e67e22; color: #fff; border-bottom-right-radius: 4px; }
-  .chat-msg.bot { align-self: flex-start; background: #16213e; color: #e0e0e0; border: 1px solid #0f3460; border-bottom-left-radius: 4px; }
-  .chat-msg.typing { color: #7f8c8d; font-style: italic; }
-  .chat-input-row { display: flex; gap: 8px; padding: 12px; border-top: 1px solid #0f3460; background: #16213e; }
-  .chat-input-row textarea { flex: 1; resize: none; min-height: 42px; max-height: 160px; background: #1a1a2e; border: 1px solid #0f3460; color: #e0e0e0; padding: 10px 12px; border-radius: 8px; font-size: 14px; font-family: inherit; }
-  .chat-input-row button { align-self: flex-end; }
+/* ── Cards ── */
+.card {
+  background: var(--card);
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 18px;
+  border: 1px solid var(--border);
+}
+.card-title {
+  font-size: 14px;
+  color: var(--accent);
+  margin-bottom: 14px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+}
 
-  /* Briefing cards */
-  .briefing-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
-  .briefing-item { background: #16213e; border: 1px solid #0f3460; border-radius: 10px; padding: 16px; text-align: center; }
-  .briefing-item .b-value { font-size: 24px; font-weight: 700; color: #e67e22; }
-  .briefing-item .b-label { font-size: 12px; color: #7f8c8d; margin-top: 4px; }
-  @media (max-width: 768px) { .briefing-grid { grid-template-columns: repeat(2, 1fr); } }
+/* ── Quick Stats ── */
+.stats-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  text-align: center;
+}
+.stat-card .stat-value { font-size: 28px; font-weight: 700; color: var(--accent); }
+.stat-card .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
 
-  /* Footer branding */
-  .footer-brand { text-align: center; padding: 20px; margin-top: 30px; border-top: 1px solid #0f3460; }
-  .footer-brand a { color: #7f8c8d; text-decoration: none; font-size: 12px; transition: color 0.2s; }
-  .footer-brand a:hover { color: #e67e22; }
-  .footer-brand .sep { color: #0f3460; margin: 0 8px; }
+/* ── Buttons ── */
+button, .btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 8px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  transition: background 0.2s;
+  font-family: inherit;
+}
+button:hover { background: var(--accent-hover); }
+button:disabled { background: #555; cursor: not-allowed; }
+button.danger { background: var(--danger); }
+button.danger:hover { background: #96281b; }
+button.secondary { background: #2c3e50; }
+button.secondary:hover { background: #34495e; }
+button.success { background: var(--success); }
+button.success:hover { background: #1e8449; }
+button.small { font-size: 12px; padding: 5px 12px; }
+
+/* ── Forms ── */
+.form-row { display: flex; gap: 10px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
+.form-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.form-group label { font-size: 13px; color: #bdc3c7; font-weight: 600; }
+.form-group-inline { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+select, input[type="password"], input[type="text"], input[type="number"], input[type="file"], textarea {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 9px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  width: 100%;
+  transition: border-color 0.2s;
+}
+select:focus, input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+textarea { resize: vertical; min-height: 60px; }
+.hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+/* ── Toggle ── */
+.toggle-wrap { display: flex; align-items: center; gap: 10px; }
+.toggle { position: relative; width: 44px; height: 24px; cursor: pointer; flex-shrink: 0; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle .slider { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #2c3e50; border-radius: 24px; transition: 0.3s; }
+.toggle .slider:before { content:''; position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px; background: var(--text); border-radius: 50%; transition: 0.3s; }
+.toggle input:checked + .slider { background: var(--accent); }
+.toggle input:checked + .slider:before { transform: translateX(20px); }
+
+/* ── Progress Bar ── */
+.progress-bar { background: var(--bg); border-radius: 10px; height: 22px; overflow: hidden; position: relative; }
+.progress-fill { background: linear-gradient(90deg, var(--accent), var(--warn)); height: 100%; border-radius: 10px; transition: width 0.5s ease; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; min-width: 30px; }
+
+/* ── Badges ── */
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.badge-type { background: var(--border); color: var(--accent); }
+.badge-persona { background: #8e44ad22; color: #a569bd; border: 1px solid #8e44ad44; }
+.badge-status { color: #fff; }
+.badge-pending { background: #2c3e50; color: var(--muted); }
+.badge-active { background: var(--info); }
+.badge-paused { background: var(--warn); }
+.badge-completed { background: var(--success); }
+.badge-failed { background: var(--danger); }
+
+/* ── Active Project Cards (Home — horizontal scroll) ── */
+.project-scroll {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scroll-snap-type: x mandatory;
+}
+.project-scroll::-webkit-scrollbar { height: 6px; }
+.project-scroll::-webkit-scrollbar-track { background: var(--bg); border-radius: 6px; }
+.project-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; }
+.project-scroll-card {
+  min-width: 240px;
+  max-width: 280px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.2s;
+  flex-shrink: 0;
+  scroll-snap-align: start;
+}
+.project-scroll-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.project-scroll-card .psc-title { font-weight: 700; font-size: 14px; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.project-scroll-card .psc-meta { font-size: 12px; color: var(--muted); margin-bottom: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.project-scroll-card .psc-step { font-size: 12px; color: #bdc3c7; margin-top: 6px; }
+
+/* ── Chat Interface ── */
+.chat-container { display: flex; flex-direction: column; height: 420px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.chat-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.chat-msg { max-width: 80%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.6; word-wrap: break-word; white-space: pre-wrap; }
+.chat-msg.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+.chat-msg.bot { align-self: flex-start; background: var(--card); color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+.chat-msg.system { align-self: center; background: transparent; color: var(--muted); font-size: 12px; font-style: italic; }
+.typing-indicator { align-self: flex-start; color: var(--muted); font-style: italic; font-size: 13px; padding: 6px 14px; }
+.typing-indicator span { animation: typeDot 1.4s infinite; }
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes typeDot { 0%,60%,100%{ opacity:0.3; } 30%{ opacity:1; } }
+.chat-input-row { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); background: var(--card); }
+.chat-input-row input[type="text"] { flex: 1; }
+.chat-input-row button { flex-shrink: 0; }
+
+/* ── Template Tiles ── */
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.template-tile {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+.template-tile:hover { border-color: var(--accent); transform: translateY(-2px); }
+.template-tile.highlighted { border-color: var(--accent); background: rgba(230,126,34,0.06); }
+.template-tile.span-2 { grid-column: span 2; }
+.template-tile .tile-icon { font-size: 28px; margin-bottom: 8px; }
+.template-tile .tile-name { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+.template-tile .tile-desc { font-size: 12px; color: var(--muted); margin-bottom: 6px; line-height: 1.4; }
+.template-tile .tile-steps { font-size: 11px; color: var(--accent); }
+
+/* ── Project List (Projects panel) ── */
+.filter-tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.filter-tab {
+  padding: 8px 18px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+.filter-tab:hover { color: var(--text); }
+.filter-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+.project-list-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 12px;
+  transition: border-color 0.2s;
+}
+.project-list-card:hover { border-color: var(--accent); }
+.plc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px; }
+.plc-title { font-weight: 700; font-size: 15px; cursor: pointer; }
+.plc-title:hover { color: var(--accent); }
+.plc-badges { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.plc-info { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.plc-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* ── Project Detail View ── */
+.project-detail { animation: panelFade 0.2s ease; }
+.project-detail .pd-back { cursor: pointer; color: var(--accent); font-size: 14px; font-weight: 600; margin-bottom: 16px; display: inline-flex; align-items: center; gap: 6px; }
+.project-detail .pd-back:hover { text-decoration: underline; }
+.step-list { margin-top: 12px; }
+.step-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.step-item:last-child { border: none; }
+.step-item:hover { background: rgba(255,255,255,0.02); }
+.step-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
+.step-dot.pending { background: #2c3e50; }
+.step-dot.active { background: var(--info); animation: hb-pulse 1.5s infinite; }
+.step-dot.completed { background: var(--success); }
+.step-dot.skipped { background: var(--muted); }
+.step-dot.failed { background: var(--danger); }
+.step-output { margin-top: 8px; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; color: #bdc3c7; white-space: pre-wrap; max-height: 200px; overflow-y: auto; display: none; }
+.step-output.open { display: block; }
+
+/* ── File download panel ── */
+.file-panel { margin-top: 14px; padding: 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+.file-row { display: flex; align-items: center; gap: 10px; padding: 8px; margin-bottom: 4px; border-radius: 6px; background: var(--card); border: 1px solid var(--border); }
+.file-row .file-icon { font-size: 18px; flex-shrink: 0; }
+.file-row .file-info { flex: 1; min-width: 0; }
+.file-row .file-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-row .file-size { font-size: 11px; color: var(--muted); }
+.file-row .file-dl { background: var(--success); color: #fff; padding: 4px 12px; border-radius: 4px; font-size: 12px; text-decoration: none; font-weight: 600; white-space: nowrap; }
+.file-row .file-dl:hover { background: #1e8449; }
+
+/* ── Persona Cards ── */
+.persona-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.persona-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  transition: border-color 0.2s;
+  position: relative;
+}
+.persona-card:hover { border-color: var(--accent); }
+.persona-card .pa-top { display: flex; gap: 14px; align-items: center; margin-bottom: 12px; }
+.persona-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 18px;
+  color: #fff;
+  flex-shrink: 0;
+}
+.persona-card .pa-name { font-weight: 700; font-size: 16px; }
+.persona-card .pa-genre { font-size: 12px; color: var(--muted); }
+.persona-card .pa-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.persona-card .pa-tag { font-size: 10px; background: var(--border); color: var(--text); padding: 2px 8px; border-radius: 10px; }
+.persona-card .pa-voice { font-size: 11px; color: var(--info); margin-top: 8px; }
+.persona-card .pa-actions { display: flex; gap: 6px; margin-top: 12px; }
+.persona-new {
+  border: 2px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  min-height: 180px;
+  transition: border-color 0.2s;
+}
+.persona-new:hover { border-color: var(--accent); }
+.persona-new .plus { font-size: 36px; color: var(--muted); margin-bottom: 8px; }
+.persona-new .plus-label { font-size: 14px; color: var(--muted); font-weight: 600; }
+
+/* ── Library ── */
+.doc-list { margin-top: 12px; }
+.doc-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.doc-row:last-child { border: none; }
+.doc-row .doc-name { flex: 1; font-weight: 600; }
+.doc-row .doc-meta { color: var(--muted); font-size: 12px; }
+
+/* ── Settings key tags ── */
+.key-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.key-tag { background: var(--bg); border: 1px solid var(--border); padding: 6px 12px; border-radius: 20px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.key-tag .del { cursor: pointer; color: var(--danger); font-weight: bold; }
+
+/* ── Provider list ── */
+.provider-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.provider-row:last-child { border: none; }
+
+/* ── Modal ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: panelFade 0.2s ease;
+}
+.modal {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  width: 90%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.modal-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; color: var(--accent); }
+.modal-actions { display: flex; gap: 10px; margin-top: 18px; justify-content: flex-end; }
+
+/* ── Toast ── */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 9999;
+  animation: toastSlide 0.3s ease;
+  max-width: 420px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+}
+.toast.success { background: var(--success); color: #fff; }
+.toast.error { background: var(--danger); color: #fff; }
+.toast.info { background: var(--info); color: #fff; }
+@keyframes toastSlide { from { transform: translateX(120px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .main-body { padding: 16px 14px; }
+  .stats-bar { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .stat-card .stat-value { font-size: 22px; }
+  .template-grid { grid-template-columns: repeat(2, 1fr); }
+  .template-tile.span-2 { grid-column: span 1; }
+  .form-group-inline { grid-template-columns: 1fr; }
+  .persona-grid { grid-template-columns: 1fr; }
+  .modal { width: 96%; padding: 16px; }
+}
+@media (max-width: 480px) {
+  .stats-bar { grid-template-columns: 1fr 1fr; }
+  .template-grid { grid-template-columns: 1fr; }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #1a4a8a; }
 </style>
 </head>
 <body>
 
-<div class="header">
-  <h1><span class="status-dot ok" id="healthDot"></span> &#9997;&#65039; AuthorClaw</h1>
-  <span class="version" id="versionLabel">v3.0.0 &mdash; The Autonomous AI Writing Agent</span>
+<!-- ═══════════════════════════════════════════════
+     SIDEBAR
+     ═══════════════════════════════════════════════ -->
+<div class="sidebar">
+  <div class="sidebar-brand">
+    <span class="brand-icon">&#128059;</span>
+    <div>
+      <span class="brand-text">AuthorClaw</span>
+      <span class="brand-ver">v4.0.0</span>
+    </div>
+  </div>
+  <div class="sidebar-nav">
+    <div class="nav-item active" data-panel="home">
+      <span class="nav-icon">&#127968;</span>
+      <span class="nav-label">Home</span>
+    </div>
+    <div class="nav-item" data-panel="projects">
+      <span class="nav-icon">&#128203;</span>
+      <span class="nav-label">Projects</span>
+    </div>
+    <div class="nav-item" data-panel="personas">
+      <span class="nav-icon">&#128100;</span>
+      <span class="nav-label">Personas</span>
+    </div>
+    <div class="nav-item" data-panel="library">
+      <span class="nav-icon">&#128218;</span>
+      <span class="nav-label">Library</span>
+    </div>
+    <div class="nav-item" data-panel="settings">
+      <span class="nav-icon">&#9881;&#65039;</span>
+      <span class="nav-label">Settings</span>
+    </div>
+  </div>
+  <div class="sidebar-footer">
+    <div class="heartbeat-dot" id="heartbeatDot"></div>
+    <span class="footer-label" id="heartbeatLabel">Connecting...</span>
+  </div>
 </div>
 
-<div class="tabs" id="tabBar">
-  <div class="tab active" data-tab="home">&#127968; Home</div>
-  <div class="tab" data-tab="projects">&#128203; Projects</div>
-  <div class="tab" data-tab="settings">&#9881;&#65039; Settings</div>
-</div>
-
-<div class="content">
-
-<!-- HOME TAB -->
-<div class="panel active" id="panel-home">
-
-  <!-- First-run welcome banner (hidden after API key is added) -->
-  <div class="card" id="welcomeBanner" style="display:none; background:linear-gradient(135deg,#0f3460,#16213e); border:2px solid #e67e22; text-align:center; padding:24px;">
-    <h3 style="color:#e67e22; margin-top:0;">&#128075; Welcome to AuthorClaw!</h3>
-    <p style="color:#bdc3c7; line-height:1.7; margin:12px 0;">
-      Let's get you set up in 60 seconds:
-    </p>
-    <ol style="color:#e0e0e0; text-align:left; max-width:400px; margin:0 auto; line-height:2;">
-      <li>Click the <strong>&#9881;&#65039; Settings</strong> tab above</li>
-      <li>Paste your <strong>Gemini API key</strong> (it's free!)</li>
-      <li>Click <strong>Save</strong> &mdash; you're ready to write!</li>
-    </ol>
-    <p style="margin-top:14px;">
-      <a href="https://ai.google.dev" target="_blank" style="color:#e67e22; font-weight:bold;">Get a free Gemini API key &rarr;</a>
-    </p>
-  </div>
-
-  <!-- Morning Briefing -->
-  <div class="card">
-    <h3>&#9728;&#65039; Morning Briefing</h3>
-    <div class="briefing-grid">
-      <div class="briefing-item">
-        <div class="b-value" id="briefProjects">0</div>
-        <div class="b-label">Active Projects</div>
-      </div>
-      <div class="briefing-item">
-        <div class="b-value" id="briefWords">0</div>
-        <div class="b-label">Words Today</div>
-      </div>
-      <div class="briefing-item">
-        <div class="b-value" id="briefSteps">0</div>
-        <div class="b-label">Steps Completed</div>
-      </div>
-      <div class="briefing-item">
-        <div class="b-value" id="briefStreak">0</div>
-        <div class="b-label">Projects Done</div>
-      </div>
-    </div>
-    <div id="briefSummary" style="font-size:13px;color:#bdc3c7;line-height:1.6;"></div>
-  </div>
-
-  <!-- Chat Panel -->
-  <div class="card">
-    <h3>&#128172; Chat with AuthorClaw</h3>
-    <div class="chat-container">
-      <div class="chat-messages" id="chatMessages">
-        <div class="chat-msg bot">Hello! I'm AuthorClaw, your AI writing partner. How can I help you today?</div>
-      </div>
-      <div class="chat-input-row">
-        <textarea id="chatInput" placeholder="Type a message... (Enter to send, Shift+Enter for new line)" rows="1"></textarea>
-        <button id="btnChatSend">Send</button>
-        <button class="secondary" id="btnChatClear" title="Clear chat history" style="padding:8px 12px;">&#128465;</button>
-      </div>
+<!-- ═══════════════════════════════════════════════
+     MAIN CONTENT
+     ═══════════════════════════════════════════════ -->
+<div class="main">
+  <div class="main-header">
+    <h2 id="panelTitle">Home</h2>
+    <div class="header-right">
+      <span id="headerStatus"></span>
     </div>
   </div>
+  <div class="main-body">
 
-  <!-- Quick Research -->
-  <div class="card">
-    <h3>&#128270; Quick Research</h3>
-    <div class="form-row">
-      <input type="text" id="researchQuery" placeholder="e.g. medieval sword types, self-publishing trends 2026" style="flex:1;">
-      <button id="btnResearch">Search</button>
-    </div>
-    <div id="researchResults" style="margin-top:10px;display:none;">
-      <div id="researchResultsList"></div>
-    </div>
-  </div>
+    <!-- ═══════════════════════════════
+         PANEL: HOME
+         ═══════════════════════════════ -->
+    <div class="panel active" id="panel-home">
 
-  <!-- Agent Report -->
-  <div class="card">
-    <h3>&#129302; Agent Report</h3>
-    <div id="agentReportContent">
-      <div style="text-align:center;padding:12px;color:#7f8c8d;">Loading agent status...</div>
-    </div>
-    <div id="agentJournalEntries" style="margin-top:10px;max-height:240px;overflow-y:auto;display:none;"></div>
-  </div>
-
-  <!-- Recent Activity / Director's Log -->
-  <div class="card">
-    <h3>&#128240; Recent Activity</h3>
-    <div id="homeActivity">
-      <div style="text-align:center;padding:20px;color:#7f8c8d;">
-        <p>No recent activity. Create a project or start a conversation to get going!</p>
+      <!-- Quick Stats Bar -->
+      <div class="stats-bar">
+        <div class="stat-card">
+          <div class="stat-value" id="statProjects">0</div>
+          <div class="stat-label">Active Projects</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="statWords">0</div>
+          <div class="stat-label">Total Words</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="statHeartbeat">--</div>
+          <div class="stat-label">Heartbeat</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="statPersonas">0</div>
+          <div class="stat-label">Personas</div>
+        </div>
       </div>
-    </div>
-  </div>
 
-
-</div>
-
-<!-- SETTINGS TAB -->
-<div class="panel" id="panel-settings">
-
-  <!-- API Key Management -->
-  <div class="card">
-    <h3>&#128273; API Key Management</h3>
-    <div class="form-row">
-      <select id="keyName">
-        <option value="gemini_api_key">Gemini API Key</option>
-        <option value="deepseek_api_key">DeepSeek API Key</option>
-        <option value="anthropic_api_key">Anthropic (Claude) API Key</option>
-        <option value="openai_api_key">OpenAI API Key</option>
-        <option value="telegram_bot_token">Telegram Bot Token</option>
-      </select>
-      <input type="password" id="keyValue" placeholder="Paste your API key here...">
-      <button id="btnSaveKey">Save Key</button>
-    </div>
-    <p class="hint" style="margin-bottom:8px;">Keys are encrypted with AES-256-GCM and stored in the vault. Values are never displayed.</p>
-    <details style="margin-bottom:12px;">
-      <summary style="cursor:pointer;font-size:13px;color:#7f8c8d;user-select:none;">Advanced: Load keys from files</summary>
-      <div style="margin-top:8px; padding:10px; background:#1a1a2e; border:1px dashed #0f3460; border-radius:6px;">
-        <p style="font-size:13px; color:#bdc3c7; margin-bottom:8px;"><strong>Can't paste?</strong> Place your API keys in text files, then click Load:</p>
-        <p class="hint" style="margin-bottom:8px; font-size:12px;">
-          Expected files: <code>gemini_api_key.txt</code>, <code>telegram_bot_token.txt</code>, <code>deepseek_api_key.txt</code>, <code>anthropic_api_key.txt</code>, <code>openai_api_key.txt</code><br>
-          Or a single <code>key.txt</code> file will be loaded into the selected key above.
-        </p>
-        <button id="btnLoadFromFiles" style="background:#27ae60;font-size:13px;padding:6px 14px;">&#128194; Load Keys from Files</button>
-        <span id="loadKeysStatus" style="margin-left:10px;font-size:13px;color:#7f8c8d;"></span>
+      <!-- Active Project Cards -->
+      <div class="card">
+        <div class="card-title">Active Projects</div>
+        <div class="project-scroll" id="homeProjectScroll">
+          <div style="color:var(--muted);padding:20px;text-align:center;width:100%;">No active projects. Go to Projects to create one.</div>
+        </div>
       </div>
-    </details>
-    <div class="key-list" id="keyList"></div>
-  </div>
 
-  <!-- AI Providers -->
-  <div class="card">
-    <h3>&#129302; AI Providers</h3>
-    <div id="providerList"><span style="color:#7f8c8d">Loading...</span></div>
-    <div style="margin-top:10px;">
-      <button id="btnRefreshProviders" style="background:#2980b9;font-size:13px;padding:6px 14px;">&#128260; Refresh Providers</button>
-      <span id="refreshProviderStatus" style="margin-left:10px;font-size:13px;color:#7f8c8d;"></span>
-    </div>
-  </div>
-
-  <!-- Model Selection -->
-  <div class="card">
-    <h3>&#127919; Model Selection</h3>
-    <p class="hint" style="margin-bottom:12px;">Override the model name for each active provider. Leave blank to use the default.</p>
-    <div id="modelSelectionList"><span style="color:#7f8c8d">Loading providers...</span></div>
-  </div>
-
-  <!-- Budget Settings -->
-  <div class="card">
-    <h3>&#128176; Budget Settings</h3>
-    <div class="form-group-inline">
-      <div class="form-group">
-        <label>Daily Limit ($)</label>
-        <input type="number" id="budgetDaily" step="0.01" min="0" placeholder="e.g. 5.00">
-      </div>
-      <div class="form-group">
-        <label>Monthly Limit ($)</label>
-        <input type="number" id="budgetMonthly" step="0.01" min="0" placeholder="e.g. 50.00">
-      </div>
-    </div>
-    <button id="btnSaveBudget">Save Budget</button>
-  </div>
-
-  <!-- Agent Behavior (merged Heartbeat + Autonomous) -->
-  <div class="card">
-    <h3>&#129302; Agent Behavior</h3>
-    <p class="hint" style="margin-bottom:12px;">When enabled, AuthorClaw wakes up on schedule, checks for active projects, and executes steps automatically. It tracks your writing progress and sends reminders to keep you on track.</p>
-
-    <div class="toggle-wrap" style="margin-bottom:16px;">
-      <label class="toggle">
-        <input type="checkbox" id="autonomousEnabled">
-        <span class="slider"></span>
-      </label>
-      <span style="font-size:14px;font-weight:600;" id="autonomousLabel">Agent OFF</span>
-    </div>
-
-    <div id="autonomousStatusBanner" style="background:#1a1a2e;border:1px solid #0f3460;border-radius:8px;padding:12px;margin-bottom:14px;font-size:13px;">
-      <span id="autonomousStatusText" style="color:#7f8c8d;">Loading status...</span>
-    </div>
-
-    <div class="form-group-inline">
-      <div class="form-group">
-        <label>Wake Interval (minutes)</label>
-        <input type="number" id="autonomousInterval" min="1" max="1440" placeholder="30">
-        <p class="hint">How often AuthorClaw checks for work (default: 30)</p>
-      </div>
-      <div class="form-group">
-        <label>Max Steps Per Wake</label>
-        <input type="number" id="autonomousMaxSteps" min="1" max="50" placeholder="5">
-        <p class="hint">Safety limit &mdash; how many project steps per cycle (default: 5)</p>
+      <!-- Chat Interface -->
+      <div class="card">
+        <div class="card-title">Chat with AuthorClaw</div>
+        <div class="chat-container">
+          <div class="chat-messages" id="chatMessages">
+            <div class="chat-msg bot">Hello! I'm AuthorClaw, your AI writing partner. How can I help you today?</div>
+          </div>
+          <div class="chat-input-row">
+            <input type="text" id="chatInput" placeholder="Type a message or /command... (Enter to send)">
+            <button id="btnChatSend">Send</button>
+          </div>
+        </div>
+        <div class="hint" style="margin-top:8px;">
+          Commands: /novel, /project, /write, /files, /read, /export, /speak, /voice, /status, /stop, /clean, /help
+        </div>
       </div>
     </div>
 
-    <div class="form-group-inline">
-      <div class="form-group">
-        <label>Daily Word Goal</label>
-        <input type="number" id="heartbeatWordGoal" min="0" placeholder="e.g. 2000">
+    <!-- ═══════════════════════════════
+         PANEL: PROJECTS
+         ═══════════════════════════════ -->
+    <div class="panel" id="panel-projects">
+
+      <!-- Template Tiles -->
+      <div class="card" id="projectTemplatesCard">
+        <div class="card-title">Project Templates</div>
+        <div class="template-grid" id="templateGrid">
+          <!-- Populated by JS -->
+        </div>
       </div>
-      <div class="form-group">
-        <label>Quiet Hours Start (24h)</label>
-        <input type="number" id="autonomousQuietStart" min="0" max="23" placeholder="22">
+
+      <!-- Project List -->
+      <div class="card" id="projectListCard">
+        <div class="card-title">Your Projects</div>
+        <div class="filter-tabs" id="projectFilterTabs">
+          <div class="filter-tab active" data-filter="all">All</div>
+          <div class="filter-tab" data-filter="active">Active</div>
+          <div class="filter-tab" data-filter="paused">Paused</div>
+          <div class="filter-tab" data-filter="completed">Completed</div>
+        </div>
+        <div id="projectList">
+          <div style="color:var(--muted);padding:20px;text-align:center;">Loading projects...</div>
+        </div>
+      </div>
+
+      <!-- Project Detail View (hidden by default, replaces list when active) -->
+      <div id="projectDetailView" style="display:none;"></div>
+    </div>
+
+    <!-- ═══════════════════════════════
+         PANEL: PERSONAS
+         ═══════════════════════════════ -->
+    <div class="panel" id="panel-personas">
+      <div class="card">
+        <div class="card-title">Author Personas</div>
+        <div class="persona-grid" id="personaGrid">
+          <!-- Populated by JS -->
+        </div>
       </div>
     </div>
 
-    <div class="form-group-inline">
-      <div class="form-group">
-        <label>Quiet Hours End (24h)</label>
-        <input type="number" id="autonomousQuietEnd" min="0" max="23" placeholder="7">
-        <p class="hint">AuthorClaw won't wake up during quiet hours. Set both to 0 to disable.</p>
+    <!-- ═══════════════════════════════
+         PANEL: LIBRARY
+         ═══════════════════════════════ -->
+    <div class="panel" id="panel-library">
+      <div class="card">
+        <div class="card-title">Uploaded Documents</div>
+        <div style="margin-bottom:14px;">
+          <button id="btnUploadDoc" class="success">Upload Document</button>
+          <input type="file" id="fileUploadInput" style="display:none;" accept=".txt,.md,.docx,.pdf">
+        </div>
+        <div class="doc-list" id="docList">
+          <div style="color:var(--muted);text-align:center;padding:20px;">Loading documents...</div>
+        </div>
       </div>
-      <div class="form-group">
-        <div class="toggle-wrap" style="margin-top:20px;">
+
+      <div class="card">
+        <div class="card-title">Compiled Manuscripts</div>
+        <div id="compiledOutputs">
+          <div style="color:var(--muted);text-align:center;padding:20px;">No compiled manuscripts yet.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════
+         PANEL: SETTINGS
+         ═══════════════════════════════ -->
+    <div class="panel" id="panel-settings">
+
+      <!-- API Keys -->
+      <div class="card">
+        <div class="card-title">API Keys</div>
+        <p class="hint" style="margin-bottom:12px;">Keys are encrypted with AES-256-GCM in the vault. Values are never displayed.</p>
+        <div id="apiKeyProviders"></div>
+        <div class="key-list" id="keyList"></div>
+      </div>
+
+      <!-- Telegram -->
+      <div class="card">
+        <div class="card-title">Telegram Integration</div>
+        <div id="telegramStatus" style="margin-bottom:12px;font-size:14px;color:var(--muted);">Loading...</div>
+        <div class="form-group-inline">
+          <div class="form-group">
+            <label>Bot Token</label>
+            <input type="password" id="telegramToken" placeholder="Paste your bot token...">
+          </div>
+          <div class="form-group">
+            <label>User ID</label>
+            <input type="text" id="telegramUserId" placeholder="Your Telegram user ID">
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="success" id="btnConnectTelegram">Connect</button>
+          <button class="danger" id="btnDisconnectTelegram">Disconnect</button>
+        </div>
+      </div>
+
+      <!-- Voice -->
+      <div class="card">
+        <div class="card-title">Voice / TTS</div>
+        <div class="form-group">
+          <label>TTS Voice Preset</label>
+          <select id="ttsVoiceSelect">
+            <option value="">Loading voices...</option>
+          </select>
+        </div>
+        <button id="btnTestVoice" class="secondary">Test Voice</button>
+      </div>
+
+      <!-- Research Domains -->
+      <div class="card">
+        <div class="card-title">Research Domains</div>
+        <p class="hint" style="margin-bottom:8px;">Approved domains for AI research. One per line.</p>
+        <div class="form-group">
+          <textarea id="researchDomains" rows="5" placeholder="wikipedia.org&#10;arxiv.org"></textarea>
+        </div>
+        <button id="btnSaveDomains">Save Domains</button>
+      </div>
+
+      <!-- Autonomous Mode -->
+      <div class="card">
+        <div class="card-title">Autonomous Mode</div>
+        <div class="toggle-wrap" style="margin-bottom:14px;">
           <label class="toggle">
-            <input type="checkbox" id="heartbeatReminders">
+            <input type="checkbox" id="autonomousToggle">
             <span class="slider"></span>
           </label>
-          <span style="font-size:14px;">Enable Reminders</span>
+          <span id="autonomousLabel" style="font-size:14px;font-weight:600;">Agent OFF</span>
         </div>
-      </div>
-    </div>
-
-    <div style="display:flex;gap:10px;flex-wrap:wrap;">
-      <button id="btnSaveAutonomous">Save Settings</button>
-      <button class="secondary" id="btnPauseAutonomous">&#9208;&#65039; Pause</button>
-      <button class="success" id="btnResumeAutonomous">&#9654;&#65039; Resume</button>
-    </div>
-
-    <div id="autonomousLog" style="margin-top:14px;max-height:200px;overflow-y:auto;background:#1a1a2e;border:1px solid #0f3460;border-radius:8px;padding:12px;font-size:12px;font-family:monospace;display:none;">
-    </div>
-  </div>
-
-  <!-- Telegram Bridge -->
-  <div class="card">
-    <h3>&#128225; Telegram Integration</h3>
-    <div id="telegramStatus" style="margin-bottom:12px;font-size:14px;">Loading...</div>
-    <div class="form-group-inline">
-      <div class="form-group">
-        <label>Bot Token</label>
-        <div class="form-row" style="margin-bottom:0;">
-          <input type="password" id="telegramToken" placeholder="Save via API Keys above, or paste here to test">
-          <button class="secondary" id="btnTestTelegram">Test Token</button>
+        <div class="form-group-inline">
+          <div class="form-group">
+            <label>Wake Interval (minutes)</label>
+            <input type="number" id="autonomousInterval" min="1" max="1440" placeholder="30">
+          </div>
+          <div class="form-group">
+            <label>Quiet Hours (24h format, e.g. 22-7)</label>
+            <input type="text" id="autonomousQuiet" placeholder="22-7">
+          </div>
         </div>
-        <p class="hint">Create a bot with @BotFather on Telegram. Save the token in API Keys above.</p>
-      </div>
-      <div class="form-group">
-        <label>Allowed User IDs</label>
-        <input type="text" id="telegramUsers" placeholder="Comma-separated, e.g. 123456789,987654321">
-        <p class="hint">Your Telegram user ID. Send /start to @userinfobot to get it.</p>
+        <button id="btnSaveAutonomous">Save Settings</button>
       </div>
     </div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;">
-      <button class="success" id="btnConnectTelegram">Connect</button>
-      <button class="danger" id="btnDisconnectTelegram">Disconnect</button>
-      <button id="btnSaveTelegramUsers">Save Users</button>
-    </div>
-    <div id="telegramTestResult" class="test-result"></div>
-  </div>
 
-  <!-- Research Domains -->
-  <div class="card">
-    <h3>&#127760; Research Domains</h3>
-    <p class="hint" style="margin-bottom:8px;">Approved domains for AI research. One per line.</p>
-    <div class="form-group">
-      <textarea id="researchDomains" rows="5" placeholder="wikipedia.org&#10;arxiv.org&#10;docs.python.org"></textarea>
-    </div>
-    <button id="btnSaveDomains">Save Domains</button>
-  </div>
+  </div><!-- /main-body -->
+</div><!-- /main -->
 
-  <!-- Skills Loaded -->
-  <div class="card">
-    <h3>&#128218; Skills Loaded</h3>
-    <div id="skillsInfo"><span style="color:#7f8c8d">Loading...</span></div>
-  </div>
-
-  <!-- Author OS Tools -->
-  <div class="card">
-    <h3>&#128295; Author OS Tools</h3>
-    <div id="authorOSInfo"><span style="color:#7f8c8d">Loading...</span></div>
-  </div>
-
-  <!-- Memory Management -->
-  <div class="card">
-    <h3>&#129504; Memory</h3>
-    <p class="hint" style="margin-bottom:10px;">AuthorClaw remembers conversations and project context across sessions. Reset memory for a clean slate.</p>
-    <div style="display:flex; gap:10px; flex-wrap:wrap;">
-      <button id="btnResetMemory" style="background:#e67e22;font-size:13px;padding:6px 14px;">Reset Conversations</button>
-      <button id="btnFullResetMemory" class="danger" style="font-size:13px;padding:6px 14px;">Full Reset (wipe everything)</button>
-    </div>
-    <span id="memoryResetStatus" style="display:block;margin-top:8px;font-size:13px;color:#7f8c8d;"></span>
-  </div>
-
-  <!-- Reset Settings -->
-  <div class="card">
-    <h3>&#128260; Reset Settings</h3>
-    <p class="hint" style="margin-bottom:10px;">Reset budget, heartbeat, and autonomous settings back to defaults. API keys and Telegram config are not affected.</p>
-    <button class="danger" id="btnResetSettings">Reset Settings to Defaults</button>
-    <span id="resetSettingsStatus" style="display:block;margin-top:8px;font-size:13px;color:#7f8c8d;"></span>
-  </div>
-
-  <!-- Test Connection -->
-  <div class="card">
-    <h3>&#128172; Test Connection</h3>
-    <button class="secondary" id="btnTestChat">Send Test Message</button>
-    <div class="test-result" id="testResult"></div>
-  </div>
-
-</div>
-
-<!-- PROJECTS TAB -->
-<div class="panel" id="panel-projects">
-
-  <div class="card">
-    <h3>&#128203; Create a Project</h3>
-    <p class="hint" style="margin-bottom:12px;">Tell AuthorClaw what you want to achieve. It will autonomously plan the steps, choose the right tools and prompts, and execute them.</p>
-
-    <div class="form-group">
-      <label>What do you want to accomplish?</label>
-      <textarea id="projectDescription" rows="3" placeholder="e.g. Plan a sci-fi novel about time travel, or Write marketing copy for my fantasy book, or Analyze my writing style from Chapter 1..."></textarea>
-    </div>
-    <div class="form-group">
-      <label>Project Title <span style="color:#7f8c8d">(optional &mdash; auto-generated if blank)</span></label>
-      <input type="text" id="projectTitle" placeholder="e.g. Plan my time travel novel">
-    </div>
-    <button class="success" id="btnCreateProject">Create Project</button>
-    <p class="hint" style="margin-top:8px;">AuthorClaw will auto-detect the project type and create a step-by-step plan.</p>
-  </div>
-
-  <div class="card">
-    <h3>&#128203; Project Templates</h3>
-    <p class="hint" style="margin-bottom:12px;">Or choose a pre-built project template:</p>
-    <div class="project-templates-grid" id="projectTemplates"><span style="color:#7f8c8d">Loading templates...</span></div>
-  </div>
-
-  <div class="card">
-    <h3>&#128195; Active Projects</h3>
-    <div id="projectList"><span style="color:#7f8c8d">No projects yet. Create one above!</span></div>
-  </div>
-
-</div>
-
-</div>
-
-<!-- Footer Branding -->
-<div class="footer-brand">
-  <a href="https://www.getwritingsecrets.com" target="_blank">Writing Secrets</a>
-  <span class="sep">|</span>
-  <a href="https://www.youtube.com/@WritingSecrets" target="_blank">YouTube</a>
-  <br>
-  <span style="font-size:11px;color:#2c3e50;margin-top:6px;display:inline-block;">AuthorClaw &mdash; An AI Writing Agent by Writing Secrets</span>
-</div>
-
+<!-- ═══════════════════════════════════════════════
+     JAVASCRIPT
+     ═══════════════════════════════════════════════ -->
 <script>
-// AuthorClaw Dashboard — fully self-contained inline JS
+(function() {
+'use strict';
 
-// ── Toast ──
+// ================================================================
+// GLOBALS & STATE
+// ================================================================
+var API = '';
+var currentPanel = 'home';
+var projectFilter = 'all';
+var allProjects = [];
+var allPersonas = [];
+var allTemplates = [];
+var chatWaiting = false;
+var statusPollTimer = null;
+var projectPollTimer = null;
+var currentDetailProject = null;
+
+// ================================================================
+// UTILITIES
+// ================================================================
+function esc(str) {
+  if (!str) return '';
+  var d = document.createElement('div');
+  d.appendChild(document.createTextNode(String(str)));
+  return d.innerHTML;
+}
+
 function showToast(message, type) {
   type = type || 'info';
-  var existing = document.querySelectorAll('.toast');
-  existing.forEach(function(t) { t.remove(); });
+  document.querySelectorAll('.toast').forEach(function(t) { t.remove(); });
   var toast = document.createElement('div');
   toast.className = 'toast ' + type;
   toast.textContent = message;
   document.body.appendChild(toast);
-  setTimeout(function() { toast.remove(); }, 4000);
+  setTimeout(function() { if (toast.parentNode) toast.remove(); }, 4500);
 }
 
-// ── Tab Switching ──
-var tabs = document.querySelectorAll('.tab');
-function switchTab(name) {
-  tabs.forEach(function(t) {
-    t.classList.toggle('active', t.getAttribute('data-tab') === name);
-  });
-  document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
-  var panel = document.getElementById('panel-' + name);
-  if (panel) panel.classList.add('active');
-}
-tabs.forEach(function(t) {
-  t.addEventListener('click', function() { switchTab(t.getAttribute('data-tab')); });
-});
-
-// ── API Helpers ──
-var API = '';
 function api(method, path, body) {
   var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
   return fetch(API + path, opts).then(function(res) {
     if (!res.ok) {
-      return res.json().then(function(data) {
-        throw new Error(data.error || ('HTTP ' + res.status));
-      }).catch(function(parseErr) {
-        if (parseErr.message && !parseErr.message.startsWith('HTTP ')) throw parseErr;
+      return res.json().then(function(d) {
+        throw new Error(d.error || ('HTTP ' + res.status));
+      }).catch(function(pe) {
+        if (pe.message && !pe.message.startsWith('HTTP ')) throw pe;
         throw new Error('HTTP ' + res.status + ' ' + res.statusText);
       });
     }
@@ -618,350 +853,1025 @@ function api(method, path, body) {
   });
 }
 
-function esc(str) {
-  if (!str) return '';
-  var div = document.createElement('div');
-  div.appendChild(document.createTextNode(String(str)));
-  return div.innerHTML;
+function apiRaw(method, path, body) {
+  var opts = { method: method };
+  if (body) { opts.body = body; }
+  return fetch(API + path, opts).then(function(res) {
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  });
 }
 
-// ══════════════════════════════════════════════════════════════
-// SETTINGS TAB
-// ══════════════════════════════════════════════════════════════
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
 
-// ── Save Key ──
-document.getElementById('btnSaveKey').addEventListener('click', function() {
-  var key = document.getElementById('keyName').value;
-  var value = document.getElementById('keyValue').value;
-  if (!value) { showToast('Please enter an API key', 'error'); return; }
-  api('POST', '/api/vault', { key: key, value: value }).then(function(data) {
-    document.getElementById('keyValue').value = '';
+function formatDate(ts) {
+  if (!ts) return '';
+  var d = new Date(ts);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+}
+
+function avatarColor(name) {
+  var colors = ['#e67e22','#2980b9','#8e44ad','#c0392b','#27ae60','#d35400','#2c3e50','#16a085'];
+  var hash = 0;
+  for (var i = 0; i < (name||'').length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return colors[Math.abs(hash) % colors.length];
+}
+
+function initials(name) {
+  if (!name) return '?';
+  var parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
+// ================================================================
+// NAVIGATION
+// ================================================================
+var panelTitles = { home: 'Home', projects: 'Projects', personas: 'Personas', library: 'Library', settings: 'Settings' };
+var navItems = document.querySelectorAll('.nav-item');
+
+function switchPanel(name) {
+  currentPanel = name;
+  navItems.forEach(function(n) { n.classList.toggle('active', n.getAttribute('data-panel') === name); });
+  document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
+  var panel = document.getElementById('panel-' + name);
+  if (panel) panel.classList.add('active');
+  document.getElementById('panelTitle').textContent = panelTitles[name] || name;
+
+  // Load data for the panel
+  if (name === 'projects') {
+    loadTemplates();
+    loadProjects();
+    showProjectList();
+  } else if (name === 'personas') {
+    loadPersonas();
+  } else if (name === 'library') {
+    loadDocuments();
+  } else if (name === 'settings') {
     loadKeys();
+    loadResearchDomains();
+    loadAutonomousStatus();
     loadTelegramStatus();
-    // If providers were auto-refreshed (API key was stored), show it
-    if (data && data.refreshedProviders) {
-      showToast('Key saved! AI providers refreshed: ' + data.refreshedProviders.join(', '), 'success');
-    } else {
-      showToast('Key saved and encrypted!', 'success');
-    }
-    // Always reload status to pick up new providers
-    loadStatus();
-  }).catch(function(e) {
-    showToast('Failed to save key: ' + e.message, 'error');
+    loadVoices();
+  } else if (name === 'home') {
+    loadProjects();
+  }
+}
+
+navItems.forEach(function(n) {
+  n.addEventListener('click', function() {
+    switchPanel(n.getAttribute('data-panel'));
   });
 });
 
-// ── Refresh Providers ──
-function refreshProviders() {
-  var btn = document.getElementById('btnRefreshProviders');
-  var status = document.getElementById('refreshProviderStatus');
-  btn.disabled = true;
-  status.textContent = 'Scanning...';
-  status.style.color = '#f39c12';
-  api('POST', '/api/providers/refresh').then(function(data) {
-    btn.disabled = false;
+// ================================================================
+// STATUS POLLING
+// ================================================================
+function loadStatus() {
+  api('GET', '/api/status').then(function(data) {
+    // Heartbeat dot
+    var dot = document.getElementById('heartbeatDot');
+    var label = document.getElementById('heartbeatLabel');
+    dot.className = 'heartbeat-dot ok';
+    label.textContent = 'Online';
+
+    // Header status
+    var headerSt = document.getElementById('headerStatus');
     if (data.providers && data.providers.length > 0) {
-      status.textContent = 'Found ' + data.providers.length + ' provider(s)!';
-      status.style.color = '#2ecc71';
+      headerSt.textContent = data.providers.length + ' provider(s) active';
     } else {
-      status.textContent = 'No providers found. Add an API key above.';
-      status.style.color = '#e74c3c';
+      headerSt.textContent = 'No AI providers';
     }
-    loadStatus();
-    setTimeout(function() { status.textContent = ''; }, 5000);
-  }).catch(function(e) {
-    btn.disabled = false;
-    status.textContent = 'Error: ' + e.message;
-    status.style.color = '#e74c3c';
+
+    // Home stats
+    var activeCount = 0;
+    var totalWords = 0;
+    if (data.projects) {
+      activeCount = data.projects.active || 0;
+      totalWords = data.projects.totalWords || 0;
+    }
+    // Fallback: count from allProjects
+    if (allProjects.length > 0) {
+      activeCount = allProjects.filter(function(p) { return p.status === 'active'; }).length;
+    }
+    document.getElementById('statProjects').textContent = activeCount;
+    document.getElementById('statWords').textContent = totalWords ? totalWords.toLocaleString() : '0';
+
+    // Heartbeat stat
+    var hbStat = document.getElementById('statHeartbeat');
+    if (data.heartbeat && data.heartbeat.enabled !== false) {
+      hbStat.textContent = 'OK';
+      hbStat.style.color = '';
+    } else {
+      hbStat.textContent = 'OK';
+    }
+
+    // Personas stat
+    document.getElementById('statPersonas').textContent = allPersonas.length || (data.personas ? data.personas.count || 0 : 0);
+
+  }).catch(function() {
+    document.getElementById('heartbeatDot').className = 'heartbeat-dot err';
+    document.getElementById('heartbeatLabel').textContent = 'Offline';
+    document.getElementById('headerStatus').textContent = 'Disconnected';
   });
 }
-document.getElementById('btnRefreshProviders').addEventListener('click', refreshProviders);
 
-// ── Load Keys from Files ──
-document.getElementById('btnLoadFromFiles').addEventListener('click', function() {
-  var btn = document.getElementById('btnLoadFromFiles');
-  var status = document.getElementById('loadKeysStatus');
-  var selectedKey = document.getElementById('keyName').value;
-  btn.disabled = true;
-  status.textContent = 'Scanning for key files...';
-  status.style.color = '#f39c12';
-  api('POST', '/api/vault/load-from-files', { fallbackKeyName: selectedKey }).then(function(data) {
-    btn.disabled = false;
-    if (data.loaded && data.loaded.length > 0) {
-      status.textContent = 'Loaded: ' + data.loaded.join(', ');
-      status.style.color = '#2ecc71';
-      showToast('Loaded ' + data.loaded.length + ' key(s) from files!', 'success');
-      loadKeys();
-      loadStatus();
-      loadTelegramStatus();
-    } else {
-      status.textContent = 'No key files found. Create .txt files in the config directory.';
-      status.style.color = '#e74c3c';
-      showToast('No key files found', 'info');
+function startPolling() {
+  loadStatus();
+  loadProjects();
+  loadPersonas();
+  statusPollTimer = setInterval(loadStatus, 10000);
+  projectPollTimer = setInterval(function() {
+    if (currentPanel === 'home' || currentPanel === 'projects') {
+      loadProjects();
     }
-    if (data.errors && data.errors.length > 0) {
-      console.error('Key file errors:', data.errors);
+  }, 15000);
+}
+
+// ================================================================
+// HOME PANEL — Active Project Cards
+// ================================================================
+function renderHomeProjects() {
+  var container = document.getElementById('homeProjectScroll');
+  var active = allProjects.filter(function(p) { return p.status === 'active' || p.status === 'paused'; });
+  if (active.length === 0) {
+    container.innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center;width:100%;">No active projects. Go to Projects to create one.</div>';
+    return;
+  }
+  container.innerHTML = '';
+  active.forEach(function(p) {
+    var card = document.createElement('div');
+    card.className = 'project-scroll-card';
+    var currentStep = '';
+    if (p.steps) {
+      var act = p.steps.find(function(s) { return s.status === 'active'; });
+      if (act) currentStep = act.label || act.name || '';
     }
-    setTimeout(function() { status.textContent = ''; }, 8000);
+    var personaText = p.persona ? p.persona.penName || p.persona : '';
+    card.innerHTML =
+      '<div class="psc-title">' + esc(p.title) + '</div>' +
+      '<div class="psc-meta">' +
+        '<span class="badge badge-type">' + esc(p.type || 'general') + '</span>' +
+        '<span class="badge badge-status badge-' + esc(p.status) + '">' + esc(p.status) + '</span>' +
+      '</div>' +
+      '<div class="progress-bar"><div class="progress-fill" style="width:' + (p.progress || 0) + '%">' + (p.progress || 0) + '%</div></div>' +
+      (currentStep ? '<div class="psc-step">Current: ' + esc(currentStep) + '</div>' : '') +
+      (personaText ? '<div class="psc-step" style="color:var(--info);">Persona: ' + esc(typeof personaText === 'string' ? personaText : '') + '</div>' : '');
+    card.addEventListener('click', function() {
+      switchPanel('projects');
+      setTimeout(function() { openProjectDetail(p.id); }, 100);
+    });
+    container.appendChild(card);
+  });
+}
+
+// ================================================================
+// CHAT INTERFACE
+// ================================================================
+function addChatMsg(text, role) {
+  var el = document.getElementById('chatMessages');
+  var msg = document.createElement('div');
+  msg.className = 'chat-msg ' + role;
+  msg.textContent = text;
+  el.appendChild(msg);
+  el.scrollTop = el.scrollHeight;
+}
+
+function showTyping() {
+  removeTyping();
+  var el = document.getElementById('chatMessages');
+  var ind = document.createElement('div');
+  ind.className = 'typing-indicator';
+  ind.id = 'typingIndicator';
+  ind.innerHTML = '<span>.</span><span>.</span><span>.</span> AuthorClaw is thinking';
+  el.appendChild(ind);
+  el.scrollTop = el.scrollHeight;
+}
+
+function removeTyping() {
+  var ind = document.getElementById('typingIndicator');
+  if (ind) ind.remove();
+}
+
+function sendChat() {
+  var input = document.getElementById('chatInput');
+  var text = input.value.trim();
+  if (!text || chatWaiting) return;
+  addChatMsg(text, 'user');
+  input.value = '';
+  chatWaiting = true;
+  showTyping();
+
+  api('POST', '/api/chat', { message: text }).then(function(data) {
+    removeTyping();
+    chatWaiting = false;
+    addChatMsg(data.response || 'No response received.', 'bot');
+    // Refresh projects if a command might have created/changed one
+    if (text.startsWith('/')) { loadProjects(); }
   }).catch(function(e) {
-    btn.disabled = false;
-    status.textContent = 'Error: ' + e.message;
-    status.style.color = '#e74c3c';
+    removeTyping();
+    chatWaiting = false;
+    addChatMsg('Error: ' + e.message, 'system');
+  });
+}
+
+document.getElementById('btnChatSend').addEventListener('click', sendChat);
+document.getElementById('chatInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+});
+
+// ================================================================
+// PROJECTS PANEL
+// ================================================================
+
+// ── Template Tiles ──
+var defaultTemplates = [
+  { id: 'book-planning', icon: '&#128214;', name: 'Book Planning', desc: 'Outline and plan your book structure', steps: '5-8 steps', type: 'book-planning' },
+  { id: 'book-bible', icon: '&#128220;', name: 'Book Bible', desc: 'Build your story world bible', steps: '6-10 steps', type: 'book-bible' },
+  { id: 'book-production', icon: '&#9999;&#65039;', name: 'Book Production', desc: 'Write chapters from outline to draft', steps: '10-30 steps', type: 'book-production' },
+  { id: 'deep-revision', icon: '&#128269;', name: 'Deep Revision', desc: 'Analyze and revise your manuscript', steps: '8-12 steps', type: 'deep-revision' },
+  { id: 'format-export', icon: '&#128230;', name: 'Format & Export', desc: 'Format manuscript for publishing', steps: '4-6 steps', type: 'format-export' },
+  { id: 'book-launch', icon: '&#128640;', name: 'Book Launch', desc: 'Marketing copy and launch materials', steps: '6-10 steps', type: 'book-launch' },
+  { id: 'pipeline', icon: '&#128295;', name: 'Pipeline', desc: 'Full book pipeline: plan to publish (all 6 phases)', steps: '30+ steps', type: 'novel-pipeline', highlighted: true, span2: true },
+  { id: 'custom', icon: '&#10024;', name: 'Custom', desc: 'Describe your project freely', steps: 'AI-planned', type: 'custom' }
+];
+
+function loadTemplates() {
+  api('GET', '/api/projects/templates').then(function(data) {
+    allTemplates = data.templates || [];
+    renderTemplates();
+  }).catch(function() {
+    allTemplates = [];
+    renderTemplates();
+  });
+}
+
+function renderTemplates() {
+  var grid = document.getElementById('templateGrid');
+  grid.innerHTML = '';
+  // Use defaults, but map in server template data if available
+  defaultTemplates.forEach(function(dt) {
+    var serverT = allTemplates.find(function(st) { return st.type === dt.type || st.id === dt.id; });
+    var tile = document.createElement('div');
+    tile.className = 'template-tile' + (dt.highlighted ? ' highlighted' : '') + (dt.span2 ? ' span-2' : '');
+    var stepsText = serverT ? (serverT.stepCountLabel || serverT.stepCount + ' steps') : dt.steps;
+    tile.innerHTML =
+      '<div class="tile-icon">' + dt.icon + '</div>' +
+      '<div class="tile-name">' + esc(serverT ? (serverT.label || serverT.title || dt.name) : dt.name) + '</div>' +
+      '<div class="tile-desc">' + esc(serverT ? serverT.description : dt.desc) + '</div>' +
+      '<div class="tile-steps">' + esc(stepsText) + '</div>';
+    tile.addEventListener('click', function() {
+      openCreateProjectModal(dt, serverT);
+    });
+    grid.appendChild(tile);
+  });
+}
+
+// ── Create Project Modal ──
+function openCreateProjectModal(template, serverTemplate) {
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'createProjectModal';
+
+  var isPipeline = template.type === 'novel-pipeline';
+  var isProduction = template.type === 'book-production';
+  var isCustom = template.type === 'custom';
+
+  var personaOpts = '<option value="">None</option>';
+  allPersonas.forEach(function(p) {
+    personaOpts += '<option value="' + esc(p.id) + '">' + esc(p.penName || p.name) + '</option>';
+  });
+
+  var extraFields = '';
+  if (isProduction || isPipeline) {
+    extraFields =
+      '<div class="form-group-inline">' +
+        '<div class="form-group"><label>Chapters</label><input type="number" id="modalChapters" value="12" min="1" max="100"></div>' +
+        '<div class="form-group"><label>Words per Chapter</label><input type="number" id="modalWordsPerCh" value="3000" min="500" max="20000"></div>' +
+      '</div>';
+  }
+
+  overlay.innerHTML =
+    '<div class="modal">' +
+      '<div class="modal-title">' + (isCustom ? 'Create Custom Project' : 'Create ' + esc(template.name) + ' Project') + '</div>' +
+      '<div class="form-group">' +
+        '<label>Title</label>' +
+        '<input type="text" id="modalTitle" placeholder="Project title...">' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label>Description</label>' +
+        '<textarea id="modalDesc" rows="3" placeholder="Describe what you want to accomplish...">' + esc(isCustom ? '' : (serverTemplate ? serverTemplate.description : template.desc)) + '</textarea>' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label>Persona</label>' +
+        '<select id="modalPersona">' + personaOpts + '</select>' +
+      '</div>' +
+      extraFields +
+      '<div class="modal-actions">' +
+        '<button class="secondary" id="modalCancel">Cancel</button>' +
+        '<button class="success" id="modalCreate">Create Project</button>' +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(overlay);
+  overlay.querySelector('#modalCancel').addEventListener('click', function() { overlay.remove(); });
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+  overlay.querySelector('#modalCreate').addEventListener('click', function() {
+    var title = document.getElementById('modalTitle').value.trim();
+    var desc = document.getElementById('modalDesc').value.trim();
+    var persona = document.getElementById('modalPersona').value;
+    if (!desc && !title) { showToast('Please enter a title or description', 'error'); return; }
+
+    var body = {
+      title: title || desc.slice(0, 60),
+      description: desc || title,
+      type: isCustom ? undefined : template.type,
+      planning: isCustom ? 'dynamic' : undefined,
+      personaId: persona || undefined
+    };
+
+    if (isProduction || isPipeline) {
+      var chs = parseInt(document.getElementById('modalChapters').value);
+      var wpc = parseInt(document.getElementById('modalWordsPerCh').value);
+      if (!isNaN(chs)) body.chapters = chs;
+      if (!isNaN(wpc)) body.wordsPerChapter = wpc;
+    }
+
+    var endpoint = isPipeline ? '/api/pipeline/create' : '/api/projects/create';
+
+    document.getElementById('modalCreate').disabled = true;
+    document.getElementById('modalCreate').textContent = 'Creating...';
+
+    api('POST', endpoint, body).then(function(data) {
+      overlay.remove();
+      showToast('Project created!', 'success');
+      loadProjects();
+    }).catch(function(e) {
+      showToast('Failed: ' + e.message, 'error');
+      document.getElementById('modalCreate').disabled = false;
+      document.getElementById('modalCreate').textContent = 'Create Project';
+    });
+  });
+}
+
+// ── Load Projects ──
+function loadProjects() {
+  api('GET', '/api/projects/list').then(function(data) {
+    allProjects = data.projects || [];
+    if (currentPanel === 'projects' && !currentDetailProject) {
+      renderProjectList();
+    }
+    renderHomeProjects();
+    // Update active count stat
+    var ac = allProjects.filter(function(p) { return p.status === 'active'; }).length;
+    document.getElementById('statProjects').textContent = ac;
+  }).catch(function() {});
+}
+
+// ── Filter Tabs ──
+document.querySelectorAll('#projectFilterTabs .filter-tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('#projectFilterTabs .filter-tab').forEach(function(t) { t.classList.remove('active'); });
+    tab.classList.add('active');
+    projectFilter = tab.getAttribute('data-filter');
+    renderProjectList();
   });
 });
 
-// ── Load Keys ──
+function renderProjectList() {
+  var el = document.getElementById('projectList');
+  var filtered = allProjects;
+  if (projectFilter !== 'all') {
+    filtered = allProjects.filter(function(p) { return p.status === projectFilter; });
+  }
+  if (filtered.length === 0) {
+    el.innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center;">No ' + (projectFilter === 'all' ? '' : projectFilter + ' ') + 'projects found.</div>';
+    return;
+  }
+  el.innerHTML = '';
+  filtered.forEach(function(p) {
+    var card = document.createElement('div');
+    card.className = 'project-list-card';
+
+    var personaName = '';
+    if (p.persona) {
+      personaName = typeof p.persona === 'string' ? p.persona : (p.persona.penName || p.persona.name || '');
+    }
+
+    var completedSteps = 0;
+    var totalSteps = 0;
+    if (p.steps) {
+      totalSteps = p.steps.length;
+      completedSteps = p.steps.filter(function(s) { return s.status === 'completed'; }).length;
+    }
+
+    card.innerHTML =
+      '<div class="plc-header">' +
+        '<span class="plc-title">' + esc(p.title) + '</span>' +
+        '<div class="plc-badges">' +
+          '<span class="badge badge-type">' + esc(p.type || 'general') + '</span>' +
+          (personaName ? '<span class="badge badge-persona">' + esc(personaName) + '</span>' : '') +
+          '<span class="badge badge-status badge-' + esc(p.status) + '">' + esc(p.status) + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="progress-bar" style="margin-bottom:8px;"><div class="progress-fill" style="width:' + (p.progress || 0) + '%">' + (p.progress || 0) + '%</div></div>' +
+      '<div class="plc-info">' + completedSteps + '/' + totalSteps + ' steps' +
+        (p.createdAt ? ' &mdash; Created ' + esc(formatDate(p.createdAt)) : '') +
+      '</div>';
+
+    // Action buttons
+    var actions = document.createElement('div');
+    actions.className = 'plc-actions';
+
+    if (p.status === 'pending') {
+      actions.innerHTML += '<button class="success small btn-start" data-id="' + esc(p.id) + '">Start</button>';
+    }
+    if (p.status === 'active') {
+      actions.innerHTML +=
+        '<button class="success small btn-auto" data-id="' + esc(p.id) + '">Auto-Execute</button>' +
+        '<button class="secondary small btn-pause" data-id="' + esc(p.id) + '">Pause</button>';
+    }
+    if (p.status === 'paused') {
+      actions.innerHTML += '<button class="success small btn-resume" data-id="' + esc(p.id) + '">Resume</button>';
+    }
+    actions.innerHTML += '<button class="danger small btn-delete" data-id="' + esc(p.id) + '">Delete</button>';
+
+    card.appendChild(actions);
+    el.appendChild(card);
+
+    // Click title to open detail
+    card.querySelector('.plc-title').addEventListener('click', function() {
+      openProjectDetail(p.id);
+    });
+  });
+
+  // Wire action buttons
+  el.querySelectorAll('.btn-start').forEach(function(btn) {
+    btn.addEventListener('click', function() { projectAction('start', btn.getAttribute('data-id')); });
+  });
+  el.querySelectorAll('.btn-auto').forEach(function(btn) {
+    btn.addEventListener('click', function() { projectAction('auto-execute', btn.getAttribute('data-id')); });
+  });
+  el.querySelectorAll('.btn-pause').forEach(function(btn) {
+    btn.addEventListener('click', function() { projectAction('pause', btn.getAttribute('data-id')); });
+  });
+  el.querySelectorAll('.btn-resume').forEach(function(btn) {
+    btn.addEventListener('click', function() { projectAction('resume', btn.getAttribute('data-id')); });
+  });
+  el.querySelectorAll('.btn-delete').forEach(function(btn) {
+    btn.addEventListener('click', function() { deleteProject(btn.getAttribute('data-id')); });
+  });
+}
+
+function projectAction(action, id) {
+  var endpoint = '/api/projects/' + id + '/' + action;
+  var msg = action === 'auto-execute' ? 'Auto-executing all steps... this may take a while.' : (action.charAt(0).toUpperCase() + action.slice(1) + 'ing project...');
+  showToast(msg, 'info');
+  api('POST', endpoint).then(function(data) {
+    if (action === 'auto-execute') {
+      var completed = (data.results || []).filter(function(r) { return r.success; }).length;
+      showToast('Auto-execute done! ' + completed + ' steps completed.', 'success');
+    } else {
+      showToast('Project ' + action + 'd!', 'success');
+    }
+    loadProjects();
+    if (currentDetailProject === id) openProjectDetail(id);
+  }).catch(function(e) {
+    showToast('Failed: ' + e.message, 'error');
+    loadProjects();
+  });
+
+  // Poll during auto-execute
+  if (action === 'auto-execute') {
+    var pollId = setInterval(function() { loadProjects(); }, 8000);
+    setTimeout(function() { clearInterval(pollId); }, 300000);
+  }
+}
+
+function deleteProject(id) {
+  if (!confirm('Delete this project?')) return;
+  api('DELETE', '/api/projects/' + id).then(function() {
+    showToast('Project deleted', 'info');
+    if (currentDetailProject === id) showProjectList();
+    loadProjects();
+  }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
+}
+
+// ── Project Detail View ──
+function showProjectList() {
+  currentDetailProject = null;
+  document.getElementById('projectTemplatesCard').style.display = '';
+  document.getElementById('projectListCard').style.display = '';
+  document.getElementById('projectDetailView').style.display = 'none';
+}
+
+function openProjectDetail(id) {
+  var project = allProjects.find(function(p) { return p.id === id; });
+  if (!project) { showToast('Project not found', 'error'); return; }
+
+  currentDetailProject = id;
+  document.getElementById('projectTemplatesCard').style.display = 'none';
+  document.getElementById('projectListCard').style.display = 'none';
+  var detail = document.getElementById('projectDetailView');
+  detail.style.display = 'block';
+
+  var personaName = '';
+  if (project.persona) {
+    personaName = typeof project.persona === 'string' ? project.persona : (project.persona.penName || project.persona.name || '');
+  }
+
+  var stepsHtml = '';
+  if (project.steps && project.steps.length > 0) {
+    project.steps.forEach(function(s, i) {
+      stepsHtml +=
+        '<div class="step-item" data-step-idx="' + i + '">' +
+          '<span class="step-dot ' + esc(s.status) + '"></span>' +
+          '<div style="flex:1;">' +
+            '<div>' + esc(s.label || s.name || 'Step ' + (i+1)) + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);">' + esc(s.status) + (s.error ? ' - ' + esc(s.error.slice(0, 80)) : '') + '</div>' +
+          '</div>' +
+          '<span class="badge badge-' + esc(s.status) + '" style="font-size:10px;">' + esc(s.status) + '</span>' +
+        '</div>' +
+        '<div class="step-output" id="stepOutput' + i + '">' + esc(s.output || s.result || 'No output available.') + '</div>';
+    });
+  }
+
+  var actionsHtml = '';
+  if (project.status === 'pending') {
+    actionsHtml += '<button class="success" id="pdStart">Start Project</button> ';
+  }
+  if (project.status === 'active') {
+    actionsHtml += '<button class="success" id="pdAuto">Auto-Execute All</button> ';
+    actionsHtml += '<button class="secondary" id="pdPause">Pause</button> ';
+  }
+  if (project.status === 'paused') {
+    actionsHtml += '<button class="success" id="pdResume">Resume</button> ';
+  }
+  actionsHtml += '<button id="pdCompile">Compile Manuscript</button> ';
+  actionsHtml += '<button class="danger" id="pdDelete">Delete Project</button>';
+
+  detail.innerHTML =
+    '<div class="project-detail">' +
+      '<div class="pd-back" id="pdBack">&#8592; Back to Projects</div>' +
+      '<div class="card">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">' +
+          '<h3 style="font-size:20px;font-weight:700;">' + esc(project.title) + '</h3>' +
+          '<div style="display:flex;gap:6px;">' +
+            '<span class="badge badge-type">' + esc(project.type || 'general') + '</span>' +
+            (personaName ? '<span class="badge badge-persona">' + esc(personaName) + '</span>' : '') +
+            '<span class="badge badge-status badge-' + esc(project.status) + '">' + esc(project.status) + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="progress-bar" style="margin-bottom:12px;"><div class="progress-fill" style="width:' + (project.progress || 0) + '%">' + (project.progress || 0) + '%</div></div>' +
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">' + actionsHtml + '</div>' +
+      '</div>' +
+      '<div class="card">' +
+        '<div class="card-title">Steps</div>' +
+        '<div class="step-list">' + stepsHtml + '</div>' +
+      '</div>' +
+      '<div class="card" id="pdFilePanel">' +
+        '<div class="card-title">Project Files</div>' +
+        '<div id="pdFiles" style="color:var(--muted);">Loading files...</div>' +
+      '</div>' +
+    '</div>';
+
+  // Wire back button
+  detail.querySelector('#pdBack').addEventListener('click', showProjectList);
+
+  // Wire action buttons
+  var pdStart = detail.querySelector('#pdStart');
+  if (pdStart) pdStart.addEventListener('click', function() { projectAction('start', id); });
+  var pdAuto = detail.querySelector('#pdAuto');
+  if (pdAuto) pdAuto.addEventListener('click', function() { projectAction('auto-execute', id); });
+  var pdPause = detail.querySelector('#pdPause');
+  if (pdPause) pdPause.addEventListener('click', function() { projectAction('pause', id); });
+  var pdResume = detail.querySelector('#pdResume');
+  if (pdResume) pdResume.addEventListener('click', function() { projectAction('resume', id); });
+  var pdDelete = detail.querySelector('#pdDelete');
+  if (pdDelete) pdDelete.addEventListener('click', function() { deleteProject(id); });
+  var pdCompile = detail.querySelector('#pdCompile');
+  if (pdCompile) pdCompile.addEventListener('click', function() { compileProject(id); });
+
+  // Wire step output toggle
+  detail.querySelectorAll('.step-item').forEach(function(item) {
+    item.addEventListener('click', function() {
+      var idx = item.getAttribute('data-step-idx');
+      var out = document.getElementById('stepOutput' + idx);
+      if (out) out.classList.toggle('open');
+    });
+  });
+
+  // Load files
+  loadProjectFiles(id);
+}
+
+function loadProjectFiles(id) {
+  api('GET', '/api/projects/' + id + '/files').then(function(data) {
+    var el = document.getElementById('pdFiles');
+    if (!data.files || data.files.length === 0) {
+      el.innerHTML = '<div style="color:var(--muted);">No output files yet.</div>';
+      return;
+    }
+    el.innerHTML = '';
+    data.files.forEach(function(f) {
+      var icon = f.type === 'docx' ? '&#128216;' : (f.type === 'md' ? '&#128221;' : '&#128196;');
+      var row = document.createElement('div');
+      row.className = 'file-row';
+      row.innerHTML =
+        '<span class="file-icon">' + icon + '</span>' +
+        '<div class="file-info">' +
+          '<div class="file-name">' + esc(f.name) + '</div>' +
+          '<div class="file-size">' + formatBytes(f.size || 0) + '</div>' +
+        '</div>' +
+        '<a class="file-dl" href="/api/projects/' + encodeURIComponent(id) + '/download/' + encodeURIComponent(f.name) + '" download="' + esc(f.name) + '">Download</a>';
+      el.appendChild(row);
+    });
+  }).catch(function(e) {
+    var el = document.getElementById('pdFiles');
+    if (el) el.innerHTML = '<div style="color:var(--muted);">Could not load files.</div>';
+  });
+}
+
+function compileProject(id) {
+  showToast('Compiling manuscript...', 'info');
+  api('POST', '/api/projects/' + id + '/compile').then(function(data) {
+    if (data.success) {
+      showToast('Manuscript compiled! ' + (data.chapters || 0) + ' chapters, ~' + ((data.totalWords || 0).toLocaleString()) + ' words.', 'success');
+      loadProjectFiles(id);
+    } else {
+      showToast(data.error || 'Compile failed', 'error');
+    }
+  }).catch(function(e) { showToast('Compile failed: ' + e.message, 'error'); });
+}
+
+// ================================================================
+// PERSONAS PANEL
+// ================================================================
+function loadPersonas() {
+  api('GET', '/api/personas').then(function(data) {
+    allPersonas = data.personas || data || [];
+    if (Array.isArray(data) && !data.personas) allPersonas = data;
+    renderPersonas();
+    document.getElementById('statPersonas').textContent = allPersonas.length;
+  }).catch(function() {
+    allPersonas = [];
+    renderPersonas();
+  });
+}
+
+function renderPersonas() {
+  var grid = document.getElementById('personaGrid');
+  grid.innerHTML = '';
+
+  allPersonas.forEach(function(p) {
+    var card = document.createElement('div');
+    card.className = 'persona-card';
+    var name = p.penName || p.name || 'Unnamed';
+    var color = avatarColor(name);
+    var tags = '';
+    if (p.styleMarkers && p.styleMarkers.length > 0) {
+      var markers = typeof p.styleMarkers === 'string' ? p.styleMarkers.split(',') : p.styleMarkers;
+      markers.slice(0, 5).forEach(function(t) {
+        tags += '<span class="pa-tag">' + esc(t.trim()) + '</span>';
+      });
+    }
+
+    card.innerHTML =
+      '<div class="pa-top">' +
+        '<div class="persona-avatar" style="background:' + color + ';">' + esc(initials(name)) + '</div>' +
+        '<div>' +
+          '<div class="pa-name">' + esc(name) + '</div>' +
+          '<div class="pa-genre">' + esc((p.genre || '') + (p.subgenre ? ' / ' + p.subgenre : '')) + '</div>' +
+        '</div>' +
+      '</div>' +
+      (tags ? '<div class="pa-tags">' + tags + '</div>' : '') +
+      (p.ttsVoice ? '<div class="pa-voice">Voice: ' + esc(p.ttsVoice) + '</div>' : '') +
+      '<div class="pa-actions">' +
+        '<button class="small secondary btn-edit-persona" data-id="' + esc(p.id) + '">Edit</button>' +
+        '<button class="small danger btn-del-persona" data-id="' + esc(p.id) + '">Delete</button>' +
+      '</div>';
+    grid.appendChild(card);
+  });
+
+  // "Create New" card
+  var newCard = document.createElement('div');
+  newCard.className = 'persona-card persona-new';
+  newCard.innerHTML = '<div class="plus">+</div><div class="plus-label">Create New Persona</div>';
+  newCard.addEventListener('click', function() { openPersonaModal(null); });
+  grid.appendChild(newCard);
+
+  // Wire edit/delete
+  grid.querySelectorAll('.btn-edit-persona').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var p = allPersonas.find(function(x) { return x.id === btn.getAttribute('data-id'); });
+      if (p) openPersonaModal(p);
+    });
+  });
+  grid.querySelectorAll('.btn-del-persona').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      deletePersona(btn.getAttribute('data-id'));
+    });
+  });
+}
+
+function openPersonaModal(persona) {
+  var isEdit = !!persona;
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'personaModal';
+
+  var markers = '';
+  if (persona && persona.styleMarkers) {
+    markers = Array.isArray(persona.styleMarkers) ? persona.styleMarkers.join(', ') : persona.styleMarkers;
+  }
+
+  overlay.innerHTML =
+    '<div class="modal">' +
+      '<div class="modal-title">' + (isEdit ? 'Edit Persona' : 'Create New Persona') + '</div>' +
+      '<div class="form-group">' +
+        '<label>Pen Name</label>' +
+        '<input type="text" id="pmName" value="' + esc(persona ? (persona.penName || persona.name || '') : '') + '" placeholder="Author pen name...">' +
+      '</div>' +
+      '<div class="form-group-inline">' +
+        '<div class="form-group"><label>Genre</label><input type="text" id="pmGenre" value="' + esc(persona ? persona.genre || '' : '') + '" placeholder="e.g. Fantasy"></div>' +
+        '<div class="form-group"><label>Subgenre</label><input type="text" id="pmSubgenre" value="' + esc(persona ? persona.subgenre || '' : '') + '" placeholder="e.g. Epic Fantasy"></div>' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label>Voice Description</label>' +
+        '<textarea id="pmVoice" rows="3" placeholder="Describe the writing voice...">' + esc(persona ? persona.voiceDescription || '' : '') + '</textarea>' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label>Style Markers (comma-separated)</label>' +
+        '<input type="text" id="pmMarkers" value="' + esc(markers) + '" placeholder="e.g. lyrical, dark, atmospheric">' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label>TTS Voice</label>' +
+        '<select id="pmTTS">' +
+          '<option value="">None</option>' +
+          '<option value="en-US-AriaNeural"' + (persona && persona.ttsVoice === 'en-US-AriaNeural' ? ' selected' : '') + '>Aria (Female, US)</option>' +
+          '<option value="en-US-GuyNeural"' + (persona && persona.ttsVoice === 'en-US-GuyNeural' ? ' selected' : '') + '>Guy (Male, US)</option>' +
+          '<option value="en-US-JennyNeural"' + (persona && persona.ttsVoice === 'en-US-JennyNeural' ? ' selected' : '') + '>Jenny (Female, US)</option>' +
+          '<option value="en-US-DavisNeural"' + (persona && persona.ttsVoice === 'en-US-DavisNeural' ? ' selected' : '') + '>Davis (Male, US)</option>' +
+          '<option value="en-GB-SoniaNeural"' + (persona && persona.ttsVoice === 'en-GB-SoniaNeural' ? ' selected' : '') + '>Sonia (Female, UK)</option>' +
+          '<option value="en-GB-RyanNeural"' + (persona && persona.ttsVoice === 'en-GB-RyanNeural' ? ' selected' : '') + '>Ryan (Male, UK)</option>' +
+          '<option value="en-AU-NatashaNeural"' + (persona && persona.ttsVoice === 'en-AU-NatashaNeural' ? ' selected' : '') + '>Natasha (Female, AU)</option>' +
+          '<option value="en-AU-WilliamNeural"' + (persona && persona.ttsVoice === 'en-AU-WilliamNeural' ? ' selected' : '') + '>William (Male, AU)</option>' +
+        '</select>' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label>Bio</label>' +
+        '<textarea id="pmBio" rows="3" placeholder="Author biography...">' + esc(persona ? persona.bio || '' : '') + '</textarea>' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label>Also By (comma-separated book titles)</label>' +
+        '<input type="text" id="pmAlsoBy" value="' + esc(persona && persona.alsoBy ? (Array.isArray(persona.alsoBy) ? persona.alsoBy.join(', ') : persona.alsoBy) : '') + '" placeholder="Book Title 1, Book Title 2">' +
+      '</div>' +
+      '<div class="modal-actions">' +
+        '<button class="secondary" id="pmGenerate">Generate with AI</button>' +
+        '<button class="secondary" id="pmCancel">Cancel</button>' +
+        '<button class="success" id="pmSave">' + (isEdit ? 'Update' : 'Create') + '</button>' +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(overlay);
+  overlay.querySelector('#pmCancel').addEventListener('click', function() { overlay.remove(); });
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+  // Generate with AI
+  overlay.querySelector('#pmGenerate').addEventListener('click', function() {
+    var genre = document.getElementById('pmGenre').value.trim();
+    var desc = document.getElementById('pmVoice').value.trim();
+    if (!genre && !desc) { showToast('Enter a genre or voice description first', 'error'); return; }
+    showToast('Generating persona with AI...', 'info');
+    api('POST', '/api/personas/generate', { genre: genre, description: desc }).then(function(data) {
+      var gen = data.persona || data;
+      if (gen.penName || gen.name) document.getElementById('pmName').value = gen.penName || gen.name;
+      if (gen.genre) document.getElementById('pmGenre').value = gen.genre;
+      if (gen.subgenre) document.getElementById('pmSubgenre').value = gen.subgenre;
+      if (gen.voiceDescription) document.getElementById('pmVoice').value = gen.voiceDescription;
+      if (gen.styleMarkers) document.getElementById('pmMarkers').value = Array.isArray(gen.styleMarkers) ? gen.styleMarkers.join(', ') : gen.styleMarkers;
+      if (gen.bio) document.getElementById('pmBio').value = gen.bio;
+      showToast('Persona generated! Review and save.', 'success');
+    }).catch(function(e) { showToast('Generation failed: ' + e.message, 'error'); });
+  });
+
+  // Save
+  overlay.querySelector('#pmSave').addEventListener('click', function() {
+    var body = {
+      penName: document.getElementById('pmName').value.trim(),
+      genre: document.getElementById('pmGenre').value.trim(),
+      subgenre: document.getElementById('pmSubgenre').value.trim(),
+      voiceDescription: document.getElementById('pmVoice').value.trim(),
+      styleMarkers: document.getElementById('pmMarkers').value.split(',').map(function(s) { return s.trim(); }).filter(Boolean),
+      ttsVoice: document.getElementById('pmTTS').value,
+      bio: document.getElementById('pmBio').value.trim(),
+      alsoBy: document.getElementById('pmAlsoBy').value.split(',').map(function(s) { return s.trim(); }).filter(Boolean)
+    };
+    if (!body.penName) { showToast('Pen name is required', 'error'); return; }
+
+    var method = isEdit ? 'PUT' : 'POST';
+    var path = isEdit ? '/api/personas/' + persona.id : '/api/personas';
+
+    api(method, path, body).then(function() {
+      overlay.remove();
+      showToast(isEdit ? 'Persona updated!' : 'Persona created!', 'success');
+      loadPersonas();
+    }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
+  });
+}
+
+function deletePersona(id) {
+  if (!confirm('Delete this persona?')) return;
+  api('DELETE', '/api/personas/' + id).then(function() {
+    showToast('Persona deleted', 'info');
+    loadPersonas();
+  }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
+}
+
+// ================================================================
+// LIBRARY PANEL
+// ================================================================
+function loadDocuments() {
+  api('GET', '/api/documents').then(function(data) {
+    var docs = data.documents || data || [];
+    renderDocuments(docs);
+    loadCompiledOutputs();
+  }).catch(function() {
+    document.getElementById('docList').innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">Could not load documents.</div>';
+  });
+}
+
+function renderDocuments(docs) {
+  var el = document.getElementById('docList');
+  if (!docs || docs.length === 0) {
+    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">No documents uploaded yet.</div>';
+    return;
+  }
+  el.innerHTML = '';
+  docs.forEach(function(d) {
+    var row = document.createElement('div');
+    row.className = 'doc-row';
+    row.innerHTML =
+      '<span>&#128196;</span>' +
+      '<span class="doc-name">' + esc(d.name || d.filename) + '</span>' +
+      '<span class="doc-meta">' + formatBytes(d.size || 0) + '</span>' +
+      '<span class="doc-meta">' + esc(d.type || '') + '</span>' +
+      '<span class="doc-meta">' + esc(formatDate(d.uploadedAt || d.date)) + '</span>';
+    el.appendChild(row);
+  });
+}
+
+function loadCompiledOutputs() {
+  // Try to find manuscripts from completed projects
+  var completed = allProjects.filter(function(p) { return p.status === 'completed'; });
+  var el = document.getElementById('compiledOutputs');
+  if (completed.length === 0) {
+    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">No compiled manuscripts yet. Complete a project to generate one.</div>';
+    return;
+  }
+
+  el.innerHTML = '';
+  completed.forEach(function(p) {
+    var row = document.createElement('div');
+    row.className = 'file-row';
+    row.innerHTML =
+      '<span class="file-icon">&#128214;</span>' +
+      '<div class="file-info">' +
+        '<div class="file-name">' + esc(p.title) + '</div>' +
+        '<div class="file-size">Completed project</div>' +
+      '</div>' +
+      '<button class="small secondary btn-view-files" data-id="' + esc(p.id) + '">View Files</button>';
+    el.appendChild(row);
+  });
+
+  el.querySelectorAll('.btn-view-files').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      switchPanel('projects');
+      setTimeout(function() { openProjectDetail(btn.getAttribute('data-id')); }, 100);
+    });
+  });
+}
+
+// Upload
+document.getElementById('btnUploadDoc').addEventListener('click', function() {
+  document.getElementById('fileUploadInput').click();
+});
+
+document.getElementById('fileUploadInput').addEventListener('change', function() {
+  var file = this.files[0];
+  if (!file) return;
+  var formData = new FormData();
+  formData.append('file', file);
+  showToast('Uploading ' + file.name + '...', 'info');
+  apiRaw('POST', '/api/documents/upload', formData).then(function() {
+    showToast('Document uploaded!', 'success');
+    loadDocuments();
+  }).catch(function(e) { showToast('Upload failed: ' + e.message, 'error'); });
+  this.value = '';
+});
+
+// ================================================================
+// SETTINGS PANEL
+// ================================================================
+
+// ── API Keys ──
+var keyProviders = [
+  { key: 'gemini_api_key', label: 'Gemini', tier: 'free' },
+  { key: 'ollama_api_key', label: 'Ollama', tier: 'free' },
+  { key: 'openai_api_key', label: 'OpenAI', tier: 'paid' },
+  { key: 'anthropic_api_key', label: 'Claude (Anthropic)', tier: 'paid' },
+  { key: 'deepseek_api_key', label: 'DeepSeek', tier: 'cheap' }
+];
+
+function renderKeyProviders() {
+  var el = document.getElementById('apiKeyProviders');
+  el.innerHTML = '';
+  keyProviders.forEach(function(p) {
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap;';
+    row.innerHTML =
+      '<span style="min-width:140px;font-weight:600;font-size:14px;">' + esc(p.label) + '</span>' +
+      '<input type="password" class="key-input" data-key="' + esc(p.key) + '" placeholder="Paste ' + esc(p.label) + ' API key..." style="flex:1;min-width:200px;">' +
+      '<button class="small btn-save-key" data-key="' + esc(p.key) + '">Save</button>';
+    el.appendChild(row);
+  });
+
+  el.querySelectorAll('.btn-save-key').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var keyName = btn.getAttribute('data-key');
+      var input = el.querySelector('input[data-key="' + keyName + '"]');
+      var value = input.value.trim();
+      if (!value) { showToast('Please enter a key value', 'error'); return; }
+      api('POST', '/api/vault', { key: keyName, value: value }).then(function() {
+        input.value = '';
+        showToast('Key saved and encrypted!', 'success');
+        loadKeys();
+        loadStatus();
+      }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
+    });
+  });
+}
+
 function loadKeys() {
   api('GET', '/api/vault/keys').then(function(data) {
     var el = document.getElementById('keyList');
     if (!data.keys || data.keys.length === 0) {
-      el.innerHTML = '<span style="color:#7f8c8d">No keys stored yet</span>';
+      el.innerHTML = '<span style="color:var(--muted);">No keys stored yet</span>';
       return;
     }
     el.innerHTML = '';
     data.keys.forEach(function(k) {
       var tag = document.createElement('div');
       tag.className = 'key-tag';
-      tag.textContent = k + ' ';
-      var del = document.createElement('span');
-      del.className = 'del';
-      del.textContent = '\u00d7';
-      del.addEventListener('click', function() { deleteKey(k); });
-      tag.appendChild(del);
+      tag.innerHTML = esc(k) + ' <span class="del" data-key="' + esc(k) + '">&times;</span>';
       el.appendChild(tag);
     });
-  }).catch(function(e) {
-    document.getElementById('keyList').innerHTML = '<span style="color:#e74c3c">Error: ' + esc(e.message) + '</span>';
-  });
-}
-
-function deleteKey(key) {
-  if (!confirm('Delete ' + key + '?')) return;
-  api('DELETE', '/api/vault/' + key).then(function() {
-    loadKeys(); loadStatus(); loadTelegramStatus();
-    showToast('Key deleted', 'info');
-  }).catch(function(e) {
-    showToast('Failed: ' + e.message, 'error');
-  });
-}
-
-// ── Load Status ──
-var lastProviders = [];
-function loadStatus() {
-  api('GET', '/api/status').then(function(data) {
-    document.getElementById('healthDot').className = 'status-dot ok';
-
-    // Providers
-    var pl = document.getElementById('providerList');
-    if (data.providers && data.providers.length > 0) {
-      lastProviders = data.providers;
-      pl.innerHTML = '';
-      data.providers.forEach(function(p) {
-        var div = document.createElement('div');
-        div.className = 'provider';
-        div.innerHTML = '<span>' + esc(p.name) + ' <span style="color:#7f8c8d">(' + esc(p.model) + ')</span></span>' +
-          '<span class="tier ' + esc(p.tier) + '">' + esc(p.tier.toUpperCase()) + '</span>';
-        pl.appendChild(div);
+    el.querySelectorAll('.del').forEach(function(d) {
+      d.addEventListener('click', function() {
+        var keyName = d.getAttribute('data-key');
+        if (!confirm('Delete ' + keyName + '?')) return;
+        api('DELETE', '/api/vault/' + keyName).then(function() {
+          showToast('Key deleted', 'info');
+          loadKeys();
+          loadStatus();
+        }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
       });
-      updateModelSelection(data.providers);
-      // Hide welcome banner once providers are active
-      var wb = document.getElementById('welcomeBanner');
-      if (wb) wb.style.display = 'none';
-    } else {
-      lastProviders = [];
-      pl.innerHTML = '<span style="color:#e74c3c">No providers active. Add an API key above.</span>';
-      document.getElementById('modelSelectionList').innerHTML = '<span style="color:#7f8c8d">No active providers.</span>';
-      // Show welcome banner for first-time users
-      var wb = document.getElementById('welcomeBanner');
-      if (wb) wb.style.display = '';
-    }
-
-    // Skills
-    if (data.skills) {
-      document.getElementById('skillsInfo').innerHTML =
-        '<strong>' + esc(String(data.skills.total)) + '</strong> skills loaded (' + esc(String(data.skills.author)) + ' author-specific)';
-    }
-
-    // Budget fields
-    if (data.costs) {
-      var bd = document.getElementById('budgetDaily');
-      var bm = document.getElementById('budgetMonthly');
-      if (!bd.value && data.costs.dailyLimit) bd.value = data.costs.dailyLimit;
-      if (!bm.value && data.costs.monthlyLimit) bm.value = data.costs.monthlyLimit;
-    }
-
-    // Heartbeat fields (merged into Agent Behavior card)
-    if (data.heartbeat) {
-      var hw = document.getElementById('heartbeatWordGoal');
-      var hr = document.getElementById('heartbeatReminders');
-      if (hw && !hw.value && data.heartbeat.dailyWordGoal) hw.value = data.heartbeat.dailyWordGoal;
-      if (hr && data.heartbeat.remindersEnabled !== undefined) hr.checked = data.heartbeat.remindersEnabled;
-    }
-  }).catch(function(e) {
-    document.getElementById('healthDot').className = 'status-dot err';
-    document.getElementById('providerList').innerHTML = '<span style="color:#e74c3c">Cannot connect: ' + esc(e.message) + '</span>';
+    });
+  }).catch(function() {
+    document.getElementById('keyList').innerHTML = '<span style="color:var(--danger);">Could not load keys</span>';
   });
 }
 
-function loadConfig() {
-  api('GET', '/api/config').then(function(data) {
-    if (data.costs) {
-      var bd = document.getElementById('budgetDaily');
-      var bm = document.getElementById('budgetMonthly');
-      if (data.costs.dailyLimit !== undefined && !bd._userEdited) bd.value = data.costs.dailyLimit;
-      if (data.costs.monthlyLimit !== undefined && !bm._userEdited) bm.value = data.costs.monthlyLimit;
-    }
-    if (data.heartbeat) {
-      var hw = document.getElementById('heartbeatWordGoal');
-      if (hw && data.heartbeat.dailyWordGoal !== undefined && !hw._userEdited) hw.value = data.heartbeat.dailyWordGoal;
-    }
-  }).catch(function() {});
-}
-
-// ── Model Selection ──
-function updateModelSelection(providers) {
-  var el = document.getElementById('modelSelectionList');
-  if (!providers || providers.length === 0) { el.innerHTML = '<span style="color:#7f8c8d">No active providers.</span>'; return; }
-  el.innerHTML = '';
-  providers.forEach(function(p) {
-    var group = document.createElement('div');
-    group.className = 'form-group';
-    group.style.marginBottom = '10px';
-    var label = document.createElement('label');
-    label.textContent = p.name + ' model';
-    var input = document.createElement('input');
-    input.type = 'text'; input.value = p.model || '';
-    input.placeholder = 'e.g. ' + (p.model || 'model-name');
-    input.setAttribute('data-provider-id', p.id);
-    input.className = 'model-input';
-    group.appendChild(label); group.appendChild(input); el.appendChild(group);
-  });
-  var btn = document.createElement('button');
-  btn.textContent = 'Save Models';
-  btn.addEventListener('click', saveModels);
-  el.appendChild(btn);
-}
-
-function saveModels() {
-  var inputs = document.querySelectorAll('.model-input');
-  var promises = [];
-  inputs.forEach(function(input) {
-    var pid = input.getAttribute('data-provider-id');
-    var model = input.value.trim();
-    if (model) {
-      promises.push(api('POST', '/api/config/update', { path: 'ai.providers.' + pid + '.model', value: model }));
-    }
-  });
-  if (promises.length === 0) { showToast('No models to save', 'info'); return; }
-  Promise.all(promises).then(function() { showToast('Models saved!', 'success'); loadStatus(); })
-    .catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
-}
-
-// ── Save Budget ──
-document.getElementById('btnSaveBudget').addEventListener('click', function() {
-  var daily = parseFloat(document.getElementById('budgetDaily').value);
-  var monthly = parseFloat(document.getElementById('budgetMonthly').value);
-  var promises = [];
-  if (!isNaN(daily)) promises.push(api('POST', '/api/config/update', { path: 'costs.dailyLimit', value: daily }));
-  if (!isNaN(monthly)) promises.push(api('POST', '/api/config/update', { path: 'costs.monthlyLimit', value: monthly }));
-  if (promises.length === 0) { showToast('Enter a budget value', 'error'); return; }
-  Promise.all(promises).then(function() { showToast('Budget saved!', 'success'); })
-    .catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
-});
-
-// ── Save Heartbeat (called by unified Agent Behavior save) ──
-function saveHeartbeatSettings() {
-  var wordGoal = parseInt(document.getElementById('heartbeatWordGoal').value);
-  var reminders = document.getElementById('heartbeatReminders').checked;
-  var promises = [];
-  if (!isNaN(wordGoal)) promises.push(api('POST', '/api/config/update', { path: 'heartbeat.dailyWordGoal', value: wordGoal }));
-  promises.push(api('POST', '/api/config/update', { path: 'heartbeat.enableReminders', value: reminders }));
-  return Promise.all(promises);
-}
-
-// ── Research Domains ──
-function loadResearchDomains() {
-  api('GET', '/api/research/domains').then(function(data) {
-    var el = document.getElementById('researchDomains');
-    if (!el._userEdited && data.domains && data.domains.length > 0) {
-      el.value = data.domains.join('\n');
-    }
-  }).catch(function() {});
-}
-
-document.getElementById('btnSaveDomains').addEventListener('click', function() {
-  var raw = document.getElementById('researchDomains').value.trim();
-  var domains = raw ? raw.split('\n').map(function(d) { return d.trim(); }).filter(Boolean) : [];
-  api('POST', '/api/research/domains', { domains: domains }).then(function(data) {
-    showToast('Research domains saved! (' + data.count + ' domains)', 'success');
-    // Reset edit flag and reload to show the normalized/sorted list
-    var el = document.getElementById('researchDomains');
-    el._userEdited = false;
-    loadResearchDomains();
-  }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
-});
-
-// ── Test Chat ──
-document.getElementById('btnTestChat').addEventListener('click', function() {
-  var el = document.getElementById('testResult');
-  el.style.display = 'block'; el.textContent = 'Sending test message...';
-  api('POST', '/api/chat', { message: 'Hello, confirm you are AuthorClaw and ready to write.' }).then(function(data) {
-    el.textContent = data.response || 'No response received';
-  }).catch(function(e) { el.textContent = 'Error: ' + e.message; el.style.color = '#e74c3c'; });
-});
-
-// ══════════════════════════════════════════════════════════════
-// TELEGRAM INTEGRATION
-// ══════════════════════════════════════════════════════════════
-
+// ── Telegram ──
 function loadTelegramStatus() {
   api('GET', '/api/telegram/status').then(function(data) {
     var el = document.getElementById('telegramStatus');
-    var parts = [];
     if (data.connected) {
-      parts.push('<span style="color:#27ae60;font-weight:700;">Connected</span>');
+      el.innerHTML = '<span style="color:var(--success);font-weight:700;">Connected</span>';
     } else if (data.hasToken) {
-      parts.push('<span style="color:#f39c12;font-weight:700;">Token stored but not connected</span>');
+      el.innerHTML = '<span style="color:var(--warn);font-weight:700;">Token stored, not connected</span>';
     } else {
-      parts.push('<span style="color:#7f8c8d;">No bot token configured</span>');
-    }
-    if (data.allowedUsers && data.allowedUsers.length > 0) {
-      parts.push(' &mdash; ' + data.allowedUsers.length + ' allowed user(s)');
-    } else {
-      parts.push(' &mdash; <span style="color:#e74c3c;">No users allowed (default-deny)</span>');
-    }
-    el.innerHTML = parts.join('');
-
-    // Populate users field (masked for privacy)
-    var usersEl = document.getElementById('telegramUsers');
-    if (!usersEl._userEdited && data.allowedUsers && data.allowedUsers.length > 0) {
-      usersEl._realUsers = data.allowedUsers;
-      usersEl.value = data.allowedUsers.map(function(id) {
-        return id.length > 4 ? '*'.repeat(id.length - 4) + id.slice(-4) : id;
-      }).join(', ');
-      usersEl._isMasked = true;
+      el.innerHTML = '<span style="color:var(--muted);">Not configured</span>';
     }
   }).catch(function() {
-    document.getElementById('telegramStatus').innerHTML = '<span style="color:#7f8c8d;">Could not load status</span>';
+    document.getElementById('telegramStatus').innerHTML = '<span style="color:var(--muted);">Could not load</span>';
   });
 }
 
-document.getElementById('btnTestTelegram').addEventListener('click', function() {
-  var el = document.getElementById('telegramTestResult');
-  el.style.display = 'block'; el.textContent = 'Testing token...'; el.style.color = '#e0e0e0';
-  var token = document.getElementById('telegramToken').value.trim();
-  var body = token ? { token: token } : {};
-  api('POST', '/api/telegram/test', body).then(function(data) {
-    el.textContent = 'Bot verified: @' + (data.bot.username || data.bot.name);
-    el.style.color = '#27ae60';
-  }).catch(function(e) {
-    el.textContent = 'Failed: ' + e.message;
-    el.style.color = '#e74c3c';
-  });
-});
-
 document.getElementById('btnConnectTelegram').addEventListener('click', function() {
-  api('POST', '/api/telegram/connect').then(function(data) {
+  var token = document.getElementById('telegramToken').value.trim();
+  var userId = document.getElementById('telegramUserId').value.trim();
+  var body = {};
+  if (token) body.token = token;
+  if (userId) body.userId = userId;
+  api('POST', '/api/telegram/connect', body).then(function(data) {
     showToast(data.message || 'Telegram connected!', 'success');
     loadTelegramStatus();
   }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
@@ -974,989 +1884,123 @@ document.getElementById('btnDisconnectTelegram').addEventListener('click', funct
   }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
 });
 
-// Clear masked Telegram IDs when user clicks to edit
-document.getElementById('telegramUsers').addEventListener('focus', function() {
-  if (this._isMasked) {
-    this.value = '';
-    this._isMasked = false;
-    this.placeholder = 'Enter new user IDs (comma-separated)';
-  }
-});
-
-document.getElementById('btnSaveTelegramUsers').addEventListener('click', function() {
-  var usersEl = document.getElementById('telegramUsers');
-  // If still masked (user didn't edit), don't save
-  if (usersEl._isMasked) {
-    showToast('User IDs unchanged', 'info');
-    return;
-  }
-  var raw = usersEl.value.trim();
-  var users = raw ? raw.split(',').map(function(u) { return u.trim(); }).filter(Boolean) : [];
-  api('POST', '/api/telegram/users', { users: users }).then(function() {
-    showToast('Telegram users saved!', 'success');
-    usersEl._userEdited = false;
-    loadTelegramStatus();
-  }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
-});
-
-// ── Author OS Tools ──
-function loadAuthorOS() {
-  api('GET', '/api/author-os/status').then(function(data) {
-    var el = document.getElementById('authorOSInfo');
-    if (!data.tools || data.tools.length === 0) {
-      el.innerHTML = '<span style="color:#7f8c8d;">No Author OS tools detected. Mount to ~/author-os.</span>';
-      return;
+// ── Voice ──
+function loadVoices() {
+  api('GET', '/api/audio/voices').then(function(data) {
+    var sel = document.getElementById('ttsVoiceSelect');
+    var voices = data.voices || data || [];
+    sel.innerHTML = '<option value="">Select a voice...</option>';
+    if (Array.isArray(voices)) {
+      voices.forEach(function(v) {
+        var name = typeof v === 'string' ? v : (v.name || v.id || v);
+        var opt = document.createElement('option');
+        opt.value = typeof v === 'string' ? v : (v.id || v.name);
+        opt.textContent = name;
+        sel.appendChild(opt);
+      });
     }
-    el.innerHTML = '';
-    data.tools.forEach(function(t) {
-      var div = document.createElement('div');
-      div.style.cssText = 'display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #0f3460;font-size:14px;';
-      div.innerHTML = '<span>' + esc(t.tool) + '</span>' +
-        (t.available ? '<span style="color:#27ae60;">Available</span>' : '<span style="color:#7f8c8d;">Not found</span>');
-      el.appendChild(div);
-    });
   }).catch(function() {
-    document.getElementById('authorOSInfo').innerHTML = '<span style="color:#7f8c8d;">Could not load</span>';
+    var sel = document.getElementById('ttsVoiceSelect');
+    sel.innerHTML =
+      '<option value="">Could not load voices</option>' +
+      '<option value="en-US-AriaNeural">Aria (Female, US)</option>' +
+      '<option value="en-US-GuyNeural">Guy (Male, US)</option>' +
+      '<option value="en-US-JennyNeural">Jenny (Female, US)</option>' +
+      '<option value="en-US-DavisNeural">Davis (Male, US)</option>' +
+      '<option value="en-GB-SoniaNeural">Sonia (Female, UK)</option>' +
+      '<option value="en-GB-RyanNeural">Ryan (Male, UK)</option>' +
+      '<option value="en-AU-NatashaNeural">Natasha (Female, AU)</option>' +
+      '<option value="en-AU-WilliamNeural">William (Male, AU)</option>';
   });
 }
 
-// ── Memory Reset ──
-function doMemoryReset(full) {
-  var confirmMsg = full
-    ? 'This will wipe ALL memory including project data, book bible entries, and voice profiles. Are you sure?'
-    : 'This will clear conversation history and summaries. Project data will be preserved. Continue?';
-  if (!confirm(confirmMsg)) return;
-
-  var status = document.getElementById('memoryResetStatus');
-  status.textContent = 'Resetting...';
-  status.style.color = '#f39c12';
-
-  var url = full ? '/api/memory/reset?full=true' : '/api/memory/reset';
-  api('POST', url).then(function(data) {
-    if (data.cleared && data.cleared.length > 0) {
-      status.textContent = 'Cleared: ' + data.cleared.join(', ');
-      status.style.color = '#2ecc71';
-      showToast('Memory reset! Cleared: ' + data.cleared.join(', '), 'success');
-    } else {
-      status.textContent = 'Nothing to clear — memory was already empty.';
-      status.style.color = '#7f8c8d';
-    }
-    setTimeout(function() { status.textContent = ''; }, 6000);
-  }).catch(function(e) {
-    status.textContent = 'Error: ' + e.message;
-    status.style.color = '#e74c3c';
-  });
-}
-
-document.getElementById('btnResetMemory').addEventListener('click', function() { doMemoryReset(false); });
-document.getElementById('btnFullResetMemory').addEventListener('click', function() { doMemoryReset(true); });
-
-// ══════════════════════════════════════════════════════════════
-// PROJECTS TAB
-// ══════════════════════════════════════════════════════════════
-
-function loadProjectTemplates() {
-  api('GET', '/api/projects/templates').then(function(data) {
-    var el = document.getElementById('projectTemplates');
-    if (!data.templates || data.templates.length === 0) {
-      el.innerHTML = '<span style="color:#7f8c8d;">No templates available</span>';
-      return;
-    }
-    el.innerHTML = '';
-    data.templates.forEach(function(t) {
-      var card = document.createElement('div');
-      card.className = 'project-template';
-      var titleHtml = '<div class="gt-title">' + esc(t.label || t.title) + '</div>';
-      var descHtml = '<div class="gt-desc">' + esc(t.description) + '</div>';
-      var stepsHtml = t.stepCountLabel ? '<div class="gt-steps">' + esc(t.stepCountLabel) + '</div>' : (t.stepCount ? '<div class="gt-steps">' + t.stepCount + ' steps</div>' : '');
-      // Custom templates have an id and a delete option
-      if (t.custom) {
-        stepsHtml += '<div style="margin-top:4px;"><span style="color:#e74c3c;cursor:pointer;font-size:11px;" class="del-template" data-id="' + esc(t.id) + '">Delete</span></div>';
-      }
-      card.innerHTML = titleHtml + descHtml + stepsHtml;
-      card.addEventListener('click', function(ev) {
-        if (ev.target.classList.contains('del-template')) {
-          ev.stopPropagation();
-          var tid = ev.target.getAttribute('data-id');
-          if (confirm('Delete this custom template?')) {
-            api('DELETE', '/api/projects/templates/' + tid).then(function() {
-              showToast('Template deleted', 'info');
-              loadProjectTemplates();
-            }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
-          }
-          return;
-        }
-        document.getElementById('projectDescription').value = t.description;
-        document.getElementById('projectTitle').value = t.label || t.title;
-        document.getElementById('projectDescription').focus();
-        showToast('Template loaded! Edit and click Create Project.', 'info');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      });
-      el.appendChild(card);
-    });
-  }).catch(function() {
-    document.getElementById('projectTemplates').innerHTML = '<span style="color:#7f8c8d;">Could not load templates</span>';
-  });
-}
-
-document.getElementById('btnCreateProject').addEventListener('click', function() {
-  var description = document.getElementById('projectDescription').value.trim();
-  if (!description) { showToast('Describe what you want to accomplish', 'error'); return; }
-  var title = document.getElementById('projectTitle').value.trim() || description.slice(0, 60);
-
-  api('POST', '/api/projects/create', { title: title, description: description, planning: 'dynamic' }).then(function(data) {
-    showToast('Project created with ' + data.project.steps.length + ' steps!', 'success');
-    document.getElementById('projectDescription').value = '';
-    document.getElementById('projectTitle').value = '';
-    loadProjects();
-  }).catch(function(e) {
-    showToast('Failed: ' + e.message, 'error');
-  });
+document.getElementById('btnTestVoice').addEventListener('click', function() {
+  var voice = document.getElementById('ttsVoiceSelect').value;
+  if (!voice) { showToast('Select a voice first', 'error'); return; }
+  showToast('Testing voice: ' + voice + '...', 'info');
+  api('POST', '/api/chat', { message: '/speak test ' + voice }).then(function(data) {
+    showToast(data.response || 'Voice test sent', 'success');
+  }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
 });
 
-function loadProjects() {
-  api('GET', '/api/projects/list').then(function(data) {
-    var el = document.getElementById('projectList');
-    if (!data.projects || data.projects.length === 0) {
-      el.innerHTML = '<span style="color:#7f8c8d;">No projects yet. Create one above!</span>';
-      return;
+// ── Research Domains ──
+function loadResearchDomains() {
+  api('GET', '/api/research/domains').then(function(data) {
+    var el = document.getElementById('researchDomains');
+    if (data.domains && data.domains.length > 0) {
+      el.value = data.domains.join('\n');
     }
-    el.innerHTML = '';
-    data.projects.forEach(function(g) {
-      var item = document.createElement('div');
-      item.className = 'project-item';
-
-      // Header
-      var header = document.createElement('div');
-      header.className = 'gi-header';
-      header.innerHTML = '<span class="gi-title">' + esc(g.title) + '</span>' +
-        '<span class="gi-status ' + esc(g.status) + '">' + esc(g.status.toUpperCase()) + '</span>';
-      item.appendChild(header);
-
-      // Type
-      var typeEl = document.createElement('div');
-      typeEl.style.cssText = 'font-size:12px;color:#7f8c8d;margin-bottom:6px;';
-      typeEl.textContent = 'Type: ' + g.type + ' | ' + g.progress + '% complete';
-      item.appendChild(typeEl);
-
-      // Progress bar
-      var progressWrap = document.createElement('div');
-      progressWrap.className = 'gi-progress';
-      progressWrap.innerHTML = '<div class="progress-bar" style="height:16px;"><div class="progress-fill" style="width:' + g.progress + '%;font-size:11px;">' + g.progress + '%</div></div>';
-      item.appendChild(progressWrap);
-
-      // Steps — group by phase for novel-pipeline projects
-      var stepList = document.createElement('div');
-      stepList.className = 'step-list';
-      var currentPhase = '';
-      var isNovelPipeline = g.type === 'novel-pipeline';
-      g.steps.forEach(function(s) {
-        // Phase header for novel pipelines
-        if (isNovelPipeline && s.phase && s.phase !== currentPhase) {
-          currentPhase = s.phase;
-          var phaseHeader = document.createElement('div');
-          var phaseNames = { premise: 'Premise', bible: 'Book Bible', outline: 'Outline', writing: 'Writing', revision: 'Revision', assembly: 'Assembly' };
-          var phaseSteps = g.steps.filter(function(ps) { return ps.phase === currentPhase; });
-          var phaseDone = phaseSteps.filter(function(ps) { return ps.status === 'completed'; }).length;
-          phaseHeader.style.cssText = 'font-size:11px;font-weight:700;color:#3498db;margin:8px 0 4px;text-transform:uppercase;letter-spacing:1px;';
-          phaseHeader.textContent = (phaseNames[currentPhase] || currentPhase) + ' (' + phaseDone + '/' + phaseSteps.length + ')';
-          stepList.appendChild(phaseHeader);
-        }
-        var stepItem = document.createElement('div');
-        stepItem.className = 'step-item';
-        stepItem.innerHTML = '<span class="step-dot ' + esc(s.status) + '"></span>' +
-          '<span>' + esc(s.label) + '</span>';
-        if (s.status === 'failed' && s.error) {
-          stepItem.innerHTML += '<span style="color:#e74c3c;font-size:11px;margin-left:auto;">' + esc(s.error.slice(0, 50)) + '</span>';
-        }
-        stepList.appendChild(stepItem);
-      });
-      item.appendChild(stepList);
-
-      // Actions
-      var actions = document.createElement('div');
-      actions.className = 'gi-actions';
-
-      if (g.status === 'pending') {
-        var startBtn = document.createElement('button');
-        startBtn.className = 'success'; startBtn.textContent = 'Start';
-        startBtn.addEventListener('click', function() { startProject(g.id); });
-        actions.appendChild(startBtn);
-      }
-
-      if (g.status === 'active') {
-        var autoBtn = document.createElement('button');
-        autoBtn.className = 'success'; autoBtn.textContent = '▶ Auto-Execute All';
-        autoBtn.addEventListener('click', function() { autoExecuteProject(g.id); });
-        actions.appendChild(autoBtn);
-
-        var execBtn = document.createElement('button');
-        execBtn.textContent = 'Execute Next Step';
-        execBtn.addEventListener('click', function() { executeProjectStep(g.id); });
-        actions.appendChild(execBtn);
-
-        var pauseBtn = document.createElement('button');
-        pauseBtn.className = 'secondary'; pauseBtn.textContent = 'Pause';
-        pauseBtn.addEventListener('click', function() { pauseProject(g.id); });
-        actions.appendChild(pauseBtn);
-
-        // Skip current step
-        var activeStep = g.steps.find(function(s) { return s.status === 'active'; });
-        if (activeStep) {
-          var skipBtn = document.createElement('button');
-          skipBtn.className = 'secondary'; skipBtn.textContent = 'Skip Step';
-          skipBtn.addEventListener('click', function() { skipProjectStep(g.id, activeStep.id); });
-          actions.appendChild(skipBtn);
-        }
-      }
-
-      if (g.status === 'paused') {
-        var resumeAutoBtn = document.createElement('button');
-        resumeAutoBtn.className = 'success'; resumeAutoBtn.textContent = '▶ Resume & Auto-Execute';
-        resumeAutoBtn.addEventListener('click', function() { autoExecuteProject(g.id); });
-        actions.appendChild(resumeAutoBtn);
-      }
-
-      if (g.status === 'completed') {
-        // Check if there are unfinished steps (stuck/prematurely completed)
-        var unfinished = g.steps.filter(function(s) { return s.status === 'active' || s.status === 'pending'; });
-        if (unfinished.length > 0) {
-          var resumeBtn = document.createElement('button');
-          resumeBtn.className = 'success'; resumeBtn.textContent = '\u25B6 Resume (' + unfinished.length + ' steps left)';
-          resumeBtn.addEventListener('click', function() { resumeProject(g.id); });
-          actions.appendChild(resumeBtn);
-        }
-
-        var saveTemplateBtn = document.createElement('button');
-        saveTemplateBtn.className = 'secondary'; saveTemplateBtn.textContent = 'Save as Template';
-        saveTemplateBtn.addEventListener('click', function() { saveProjectAsTemplate(g); });
-        actions.appendChild(saveTemplateBtn);
-      }
-
-      // Download button — show if any steps have completed
-      var hasOutputs = g.steps.some(function(s) { return s.status === 'completed'; });
-      if (hasOutputs) {
-        var dlBtn = document.createElement('button');
-        dlBtn.className = 'secondary'; dlBtn.textContent = '\u{1F4E5} Download Files';
-        dlBtn.addEventListener('click', function() { showProjectFiles(g.id, g.title); });
-        actions.appendChild(dlBtn);
-      }
-
-      // Upload file button (for active, pending, paused projects)
-      if (g.status !== 'completed') {
-        var uploadBtn = document.createElement('button');
-        uploadBtn.className = 'secondary'; uploadBtn.textContent = '\u{1F4CE} Upload';
-        uploadBtn.title = 'Upload a .txt, .md, or .docx file to this project';
-        uploadBtn.addEventListener('click', function() { triggerProjectUpload(g.id); });
-        actions.appendChild(uploadBtn);
-      }
-
-      var deleteBtn = document.createElement('button');
-      deleteBtn.className = 'danger'; deleteBtn.textContent = 'Delete';
-      deleteBtn.addEventListener('click', function() { deleteProject(g.id); });
-      actions.appendChild(deleteBtn);
-
-      item.appendChild(actions);
-      el.appendChild(item);
-    });
-  }).catch(function(e) {
-    document.getElementById('projectList').innerHTML = '<span style="color:#e74c3c;">Error: ' + esc(e.message) + '</span>';
-  });
+  }).catch(function() {});
 }
 
-function startProject(id) {
-  api('POST', '/api/projects/' + id + '/start').then(function(data) {
-    showToast('Project started! Click "Execute Next Step" to proceed.', 'success');
-    loadProjects();
+document.getElementById('btnSaveDomains').addEventListener('click', function() {
+  var raw = document.getElementById('researchDomains').value.trim();
+  var domains = raw ? raw.split('\n').map(function(d) { return d.trim(); }).filter(Boolean) : [];
+  api('POST', '/api/research/domains', { domains: domains }).then(function(data) {
+    showToast('Research domains saved! (' + (data.count || domains.length) + ' domains)', 'success');
+    loadResearchDomains();
   }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
-}
+});
 
-function autoExecuteProject(id) {
-  showToast('Auto-executing all steps... this may take a while.', 'info');
-  // Use a longer timeout for auto-execute (5 min)
-  fetch('/api/projects/' + id + '/auto-execute', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (data.success) {
-        var completed = (data.results || []).filter(function(r) { return r.success; }).length;
-        var failed = (data.results || []).filter(function(r) { return !r.success; }).length;
-        showToast('Auto-execute done! ' + completed + ' steps completed' + (failed > 0 ? ', ' + failed + ' failed' : '') + '.', completed > 0 ? 'success' : 'error');
-      } else {
-        showToast('Auto-execute failed: ' + (data.error || 'Unknown'), 'error');
-      }
-      loadProjects();
-    })
-    .catch(function(e) {
-      showToast('Auto-execute error: ' + e.message, 'error');
-      loadProjects();
-    });
-  // Poll for progress while auto-executing
-  var pollId = setInterval(function() { loadProjects(); }, 8000);
-  setTimeout(function() { clearInterval(pollId); }, 300000);
-}
-
-function executeProjectStep(id) {
-  showToast('Executing step... this may take a moment.', 'info');
-  api('POST', '/api/projects/' + id + '/execute').then(function(data) {
-    if (data.success) {
-      if (data.nextStep) {
-        showToast('Step completed! Next: ' + data.nextStep.label, 'success');
-      } else {
-        showToast('Project completed!', 'success');
-      }
-    } else {
-      showToast('Step failed: ' + (data.error || 'Unknown error'), 'error');
-    }
-    loadProjects();
-  }).catch(function(e) {
-    showToast('Execution failed: ' + e.message, 'error');
-    loadProjects();
-  });
-}
-
-function pauseProject(id) {
-  api('POST', '/api/projects/' + id + '/pause').then(function() {
-    showToast('Project paused', 'info');
-    loadProjects();
-  }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
-}
-
-function skipProjectStep(projectId, stepId) {
-  api('POST', '/api/projects/' + projectId + '/skip/' + stepId).then(function() {
-    showToast('Step skipped', 'info');
-    loadProjects();
-  }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
-}
-
-function resumeProject(id) {
-  api('POST', '/api/projects/' + id + '/resume').then(function(data) {
-    if (data.resumed) {
-      showToast('Project resumed! ' + data.remainingSteps + ' steps remaining. Next: ' + (data.activeStep || 'unknown'), 'success');
-      loadProjects();
-      // Automatically start executing
-      setTimeout(function() { autoExecuteProject(id); }, 1000);
-    } else {
-      showToast('Could not resume project', 'error');
-    }
-  }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
-}
-
-function deleteProject(id) {
-  var deleteFiles = confirm('Delete this project?\n\nClick OK to delete.\n(Output files will be kept unless you also clean workspace.)');
-  if (!deleteFiles) return;
-  var alsoDeleteFiles = confirm('Also delete all output files from disk?\n\nOK = Delete project + files\nCancel = Delete project only (keep files)');
-  var url = '/api/projects/' + id + (alsoDeleteFiles ? '?files=true' : '');
-  api('DELETE', url).then(function(data) {
-    var msg = 'Project deleted';
-    if (data.filesDeleted) msg += ' + ' + data.filesDeleted + ' files removed from disk';
-    showToast(msg, 'info');
-    loadProjects();
-  }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
-}
-
-function saveProjectAsTemplate(project) {
-  var title = prompt('Template name:', project.title);
-  if (!title) return;
-  api('POST', '/api/projects/templates', {
-    title: title,
-    description: project.description || project.title,
-    type: project.type || 'general'
-  }).then(function() {
-    showToast('Saved as template!', 'success');
-    loadProjectTemplates();
-  }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
-}
-
-// ══════════════════════════════════════════════════════════════
-// PROJECT FILE DOWNLOADS
-// ══════════════════════════════════════════════════════════════
-
-function showProjectFiles(projectId, projectTitle) {
-  // Check if there's already a file list open for this project — toggle it
-  var existing = document.getElementById('file-list-' + projectId);
-  if (existing) { existing.remove(); return; }
-
-  api('GET', '/api/projects/' + projectId + '/files').then(function(data) {
-    if (!data.files || data.files.length === 0) {
-      showToast('No output files yet for this project', 'info');
-      return;
-    }
-
-    // Find the project card and insert the file list below the actions
-    var cards = document.querySelectorAll('#projectList .project-item');
-    var targetCard = null;
-    cards.forEach(function(card) {
-      if (card.querySelector('.gi-actions') && card.textContent.indexOf(projectTitle) !== -1) {
-        targetCard = card;
-      }
-    });
-    if (!targetCard) { showToast('Could not find project card', 'error'); return; }
-
-    var filePanel = document.createElement('div');
-    filePanel.id = 'file-list-' + projectId;
-    filePanel.style.cssText = 'margin-top:12px;padding:12px;background:#1a1a2e;border:1px solid #0f3460;border-radius:8px;';
-    var header = '<div style="font-weight:700;font-size:14px;margin-bottom:8px;">\u{1F4C1} Project Files</div>';
-    var fileRows = '';
-    data.files.forEach(function(f) {
-      var sizeStr = f.size < 1024 ? f.size + ' B' : (f.size < 1048576 ? (f.size / 1024).toFixed(1) + ' KB' : (f.size / 1048576).toFixed(1) + ' MB');
-      var icon = f.type === 'docx' ? '\u{1F4D8}' : (f.type === 'md' ? '\u{1F4DD}' : '\u{1F4C4}');
-      var isManuscript = f.name.startsWith('manuscript');
-      var highlight = isManuscript ? 'background:#0f3460;border:1px solid #e67e22;' : 'background:#16213e;border:1px solid #0f3460;';
-      var label = isManuscript ? ' <span style="color:#e67e22;font-size:10px;font-weight:700;">MANUSCRIPT</span>' : '';
-      fileRows += '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin-bottom:4px;border-radius:6px;' + highlight + '">' +
-        '<span style="font-size:18px;">' + icon + '</span>' +
-        '<div style="flex:1;min-width:0;">' +
-          '<div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(f.name) + label + '</div>' +
-          '<div style="font-size:11px;color:#7f8c8d;">' + sizeStr + '</div>' +
-        '</div>' +
-        '<a href="/api/projects/' + encodeURIComponent(projectId) + '/download/' + encodeURIComponent(f.name) + '" ' +
-          'download="' + esc(f.name) + '" ' +
-          'style="background:#27ae60;color:#fff;padding:4px 12px;border-radius:4px;font-size:12px;text-decoration:none;white-space:nowrap;font-weight:600;" ' +
-          'title="Download ' + esc(f.name) + '">\u2B07 Download</a>' +
-      '</div>';
-    });
-    // Add Compile Manuscript button if there are chapter files
-    var hasChapters = data.files.some(function(f) { return f.name.match(/write-chapter-\d+/); });
-    var hasManuscript = data.files.some(function(f) { return f.name === 'manuscript.md' || f.name === 'manuscript.docx'; });
-    var compileRow = '';
-    if (hasChapters) {
-      compileRow = '<div style="margin-top:10px;padding:10px;background:#0f3460;border-radius:6px;display:flex;align-items:center;justify-content:space-between;">' +
-        '<span style="font-size:13px;">\u{1F4D6} ' + (hasManuscript ? 'Manuscript compiled' : 'Combine all chapters into one file') + '</span>' +
-        '<button onclick="compileManuscript(\'' + esc(projectId) + '\')" style="background:#e67e22;color:#fff;padding:6px 16px;border:none;border-radius:4px;font-size:12px;font-weight:700;cursor:pointer;">' +
-        (hasManuscript ? '\u{1F504} Recompile' : '\u{1F4D6} Compile Manuscript') + '</button>' +
-      '</div>';
-    }
-    var closeRow = '<div style="text-align:right;margin-top:8px;"><span class="file-panel-close" style="color:#7f8c8d;cursor:pointer;font-size:12px;">Close</span></div>';
-    filePanel.innerHTML = header + fileRows + compileRow + closeRow;
-    targetCard.appendChild(filePanel);
-    var closeBtn = filePanel.querySelector('.file-panel-close');
-    if (closeBtn) closeBtn.addEventListener('click', function() { filePanel.remove(); });
-  }).catch(function(e) {
-    showToast('Failed to load files: ' + e.message, 'error');
-  });
-}
-
-function compileManuscript(projectId) {
-  showToast('Compiling manuscript... this may take a moment.', 'info');
-  api('POST', '/api/projects/' + projectId + '/compile').then(function(data) {
-    if (data.success) {
-      showToast('Manuscript compiled! ' + data.chapters + ' chapters, ~' + data.totalWords.toLocaleString() + ' words. Refresh file list to download.', 'success');
-      // Close and reopen file panel to show the new manuscript files
-      var panel = document.getElementById('file-list-' + projectId);
-      if (panel) panel.remove();
-      // Find project title for reload
-      var cards = document.querySelectorAll('#projectList .project-item');
-      cards.forEach(function(card) {
-        if (card.textContent.indexOf(projectId) !== -1 || card.querySelector('[onclick*="' + projectId + '"]')) {
-          // Just reopen with a slight delay
-        }
-      });
-    } else {
-      showToast(data.error || 'Compile failed', 'error');
-    }
-  }).catch(function(e) { showToast('Compile failed: ' + e.message, 'error'); });
-}
-
-// ══════════════════════════════════════════════════════════════
-// AUTONOMOUS MODE
-// ══════════════════════════════════════════════════════════════
-
+// ── Autonomous Mode ──
 function loadAutonomousStatus() {
   api('GET', '/api/autonomous/status').then(function(data) {
-    // Toggle
-    var toggle = document.getElementById('autonomousEnabled');
-    toggle.checked = data.enabled;
+    document.getElementById('autonomousToggle').checked = data.enabled;
     var label = document.getElementById('autonomousLabel');
     if (data.enabled && !data.paused) {
       label.textContent = data.running ? 'Agent WORKING...' : 'Agent ON';
-      label.style.color = data.running ? '#2980b9' : '#27ae60';
+      label.style.color = data.running ? 'var(--info)' : 'var(--success)';
     } else if (data.enabled && data.paused) {
       label.textContent = 'Agent PAUSED';
-      label.style.color = '#f39c12';
+      label.style.color = 'var(--warn)';
     } else {
       label.textContent = 'Agent OFF';
-      label.style.color = '#7f8c8d';
+      label.style.color = 'var(--muted)';
     }
-
-    // Status banner
-    var statusEl = document.getElementById('autonomousStatusText');
-    var parts = [];
-    if (data.enabled) {
-      if (data.running) parts.push('<span style="color:#2980b9;">&#128260; Currently executing a project step...</span>');
-      else if (data.paused) parts.push('<span style="color:#f39c12;">&#9208;&#65039; Paused</span>');
-      else parts.push('<span style="color:#27ae60;">&#9989; Active &mdash; next wake in ' + data.intervalMinutes + ' min</span>');
-    } else {
-      parts.push('<span style="color:#7f8c8d;">Disabled &mdash; toggle on to start</span>');
+    if (data.intervalMinutes) document.getElementById('autonomousInterval').value = data.intervalMinutes;
+    if (data.quietHoursStart !== undefined && data.quietHoursEnd !== undefined) {
+      document.getElementById('autonomousQuiet').value = data.quietHoursStart + '-' + data.quietHoursEnd;
     }
-    if (data.totalStepsExecuted > 0) {
-      parts.push('<br><span style="color:#bdc3c7;">Total: ' + data.totalStepsExecuted + ' steps, ~' + data.totalWordsGenerated.toLocaleString() + ' words generated</span>');
-    }
-    statusEl.innerHTML = parts.join('');
-
-    // Fill form fields (only if not user-edited)
-    var intervalEl = document.getElementById('autonomousInterval');
-    var maxStepsEl = document.getElementById('autonomousMaxSteps');
-    var quietStartEl = document.getElementById('autonomousQuietStart');
-    var quietEndEl = document.getElementById('autonomousQuietEnd');
-    if (!intervalEl._userEdited) intervalEl.value = data.intervalMinutes;
-    if (!maxStepsEl._userEdited) maxStepsEl.value = data.maxStepsPerWake;
-    if (!quietStartEl._userEdited && data.quietHoursStart !== undefined) quietStartEl.value = data.quietHoursStart;
-    if (!quietEndEl._userEdited && data.quietHoursEnd !== undefined) quietEndEl.value = data.quietHoursEnd;
-
-    // Log entries
-    var logEl = document.getElementById('autonomousLog');
-    if (data.recentLog && data.recentLog.length > 0) {
-      logEl.style.display = 'block';
-      logEl.innerHTML = '<div style="color:#e67e22;font-weight:600;margin-bottom:6px;">Recent Activity</div>' +
-        data.recentLog.slice(-10).reverse().map(function(entry) {
-          var time = new Date(entry.timestamp).toLocaleTimeString();
-          return '<div style="padding:3px 0;border-bottom:1px solid #0f3460;">' +
-            '<span style="color:#7f8c8d;">' + esc(time) + '</span> ' +
-            '<span>' + esc(entry.message) + '</span></div>';
-        }).join('');
-    } else if (data.enabled) {
-      logEl.style.display = 'block';
-      logEl.innerHTML = '<span style="color:#7f8c8d;">No activity yet &mdash; waiting for first wake cycle...</span>';
-    } else {
-      logEl.style.display = 'none';
-    }
-  }).catch(function() {
-    document.getElementById('autonomousStatusText').innerHTML = '<span style="color:#7f8c8d;">Could not load status</span>';
-  });
+  }).catch(function() {});
 }
 
-// Toggle on/off
-document.getElementById('autonomousEnabled').addEventListener('change', function() {
+document.getElementById('autonomousToggle').addEventListener('change', function() {
   var enabled = this.checked;
   var endpoint = enabled ? '/api/autonomous/enable' : '/api/autonomous/disable';
-  api('POST', endpoint).then(function(data) {
+  api('POST', endpoint).then(function() {
     showToast(enabled ? 'Autonomous mode enabled!' : 'Autonomous mode disabled', enabled ? 'success' : 'info');
     loadAutonomousStatus();
   }).catch(function(e) {
     showToast('Failed: ' + e.message, 'error');
-    loadAutonomousStatus(); // Revert toggle
+    loadAutonomousStatus();
   });
 });
 
-// Save settings (unified Agent Behavior — saves both autonomous + heartbeat)
 document.getElementById('btnSaveAutonomous').addEventListener('click', function() {
   var interval = parseInt(document.getElementById('autonomousInterval').value);
-  var maxSteps = parseInt(document.getElementById('autonomousMaxSteps').value);
-  var quietStart = parseInt(document.getElementById('autonomousQuietStart').value);
-  var quietEnd = parseInt(document.getElementById('autonomousQuietEnd').value);
-
+  var quietStr = document.getElementById('autonomousQuiet').value.trim();
   var body = {};
   if (!isNaN(interval) && interval >= 1) body.intervalMinutes = interval;
-  if (!isNaN(maxSteps) && maxSteps >= 1) body.maxStepsPerWake = maxSteps;
-  if (!isNaN(quietStart)) body.quietHoursStart = quietStart;
-  if (!isNaN(quietEnd)) body.quietHoursEnd = quietEnd;
-
-  // Save both autonomous config + heartbeat settings in one click
-  Promise.all([
-    api('POST', '/api/autonomous/config', body),
-    saveHeartbeatSettings()
-  ]).then(function() {
-    showToast('Agent settings saved!', 'success');
-    loadAutonomousStatus();
-  }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
-});
-
-// Pause/Resume
-document.getElementById('btnPauseAutonomous').addEventListener('click', function() {
-  api('POST', '/api/autonomous/pause').then(function() {
-    showToast('Autonomous mode paused', 'info');
-    loadAutonomousStatus();
-  }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
-});
-
-document.getElementById('btnResumeAutonomous').addEventListener('click', function() {
-  api('POST', '/api/autonomous/resume').then(function() {
-    showToast('Autonomous mode resumed!', 'success');
-    loadAutonomousStatus();
-  }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
-});
-
-// ══════════════════════════════════════════════════════════════
-// HOME TAB — Briefing, Chat, Activity
-// ══════════════════════════════════════════════════════════════
-
-// ── Chat Panel ──
-var chatHistory = [];
-var chatWaiting = false;
-
-function addChatMessage(text, role) {
-  var el = document.getElementById('chatMessages');
-  var msg = document.createElement('div');
-  msg.className = 'chat-msg ' + role;
-  msg.textContent = text;
-  el.appendChild(msg);
-  el.scrollTop = el.scrollHeight;
-  chatHistory.push({ role: role, text: text });
-}
-
-function showTypingIndicator() {
-  var el = document.getElementById('chatMessages');
-  var indicator = document.createElement('div');
-  indicator.className = 'chat-msg bot typing';
-  indicator.id = 'typingIndicator';
-  indicator.textContent = 'AuthorClaw is thinking...';
-  el.appendChild(indicator);
-  el.scrollTop = el.scrollHeight;
-}
-
-function removeTypingIndicator() {
-  var indicator = document.getElementById('typingIndicator');
-  if (indicator) indicator.remove();
-}
-
-function sendChatMessage() {
-  var input = document.getElementById('chatInput');
-  var text = input.value.trim();
-  if (!text || chatWaiting) return;
-
-  addChatMessage(text, 'user');
-  input.value = '';
-  input.style.height = 'auto';
-
-  chatWaiting = true;
-  showTypingIndicator();
-
-  api('POST', '/api/chat', { message: text }).then(function(data) {
-    removeTypingIndicator();
-    chatWaiting = false;
-    if (data.response) {
-      addChatMessage(data.response, 'bot');
-    } else {
-      addChatMessage('(No response received)', 'bot');
+  if (quietStr) {
+    var parts = quietStr.split('-');
+    if (parts.length === 2) {
+      body.quietHoursStart = parseInt(parts[0]);
+      body.quietHoursEnd = parseInt(parts[1]);
     }
-  }).catch(function(e) {
-    removeTypingIndicator();
-    chatWaiting = false;
-    addChatMessage('Error: ' + e.message, 'bot');
-  });
-}
-
-document.getElementById('btnChatSend').addEventListener('click', sendChatMessage);
-
-document.getElementById('chatInput').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendChatMessage();
   }
+  api('POST', '/api/autonomous/config', body).then(function() {
+    showToast('Autonomous settings saved!', 'success');
+    loadAutonomousStatus();
+  }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
 });
 
-// Auto-resize chat input
-document.getElementById('chatInput').addEventListener('input', function() {
-  this.style.height = 'auto';
-  this.style.height = Math.min(this.scrollHeight, 160) + 'px';
-});
-
-// ── Morning Briefing ──
-function loadHomeBriefing() {
-  // Fetch projects — show active count AND completed count
-  api('GET', '/api/projects/list').then(function(data) {
-    var allProjects = data.projects || [];
-    var activeProjects = allProjects.filter(function(p) { return p.status === 'active' || p.status === 'pending'; });
-    var completedProjects = allProjects.filter(function(p) { return p.status === 'completed'; });
-    document.getElementById('briefProjects').textContent = activeProjects.length;
-    document.getElementById('briefStreak').textContent = completedProjects.length;
-  }).catch(function() {});
-
-  // Fetch autonomous status for steps/words
-  api('GET', '/api/autonomous/status').then(function(data) {
-    document.getElementById('briefSteps').textContent = data.totalStepsExecuted || 0;
-    document.getElementById('briefWords').textContent = (data.totalWordsGenerated || 0).toLocaleString();
-
-    // Build summary text
-    var parts = [];
-    if (data.enabled) {
-      if (data.paused) parts.push('Autonomous mode is <strong style="color:#f39c12;">paused</strong>.');
-      else parts.push('Autonomous mode is <strong style="color:#27ae60;">active</strong> (waking every ' + data.intervalMinutes + ' min).');
-    } else {
-      parts.push('Autonomous mode is off.');
-    }
-    if (data.recentLog && data.recentLog.length > 0) {
-      var last = data.recentLog[data.recentLog.length - 1];
-      parts.push('Last activity: ' + esc(last.message));
-    }
-    document.getElementById('briefSummary').innerHTML = parts.join(' ');
-  }).catch(function() {});
-
-  // Fetch heartbeat for streak + words today
-  api('GET', '/api/status').then(function(data) {
-    if (data.heartbeat) {
-      if (data.heartbeat.streak !== undefined) {
-        document.getElementById('briefStreak').textContent = data.heartbeat.streak;
-      }
-      // Show today's word count from heartbeat
-      if (data.heartbeat.todayWords !== undefined) {
-        var wordsEl = document.getElementById('briefWords');
-        var current = parseInt(wordsEl.textContent.replace(/,/g, '')) || 0;
-        var heartbeatWords = data.heartbeat.todayWords || 0;
-        if (heartbeatWords > current) {
-          wordsEl.textContent = heartbeatWords.toLocaleString();
-        }
-      }
-    }
-  }).catch(function() {});
-}
-
-// ── Home Activity Feed ──
-function loadHomeActivity() {
-  api('GET', '/api/activity?count=10').then(function(data) {
-    var el = document.getElementById('homeActivity');
-    if (!data.entries || data.entries.length === 0) {
-      el.innerHTML = '<div style="text-align:center;padding:20px;color:#7f8c8d;"><p>No recent activity. Create a project or start a conversation to get going!</p></div>';
-      return;
-    }
-    el.innerHTML = '';
-    data.entries.slice(0, 10).forEach(function(entry) {
-      var div = document.createElement('div');
-      div.className = 'log-entry';
-      var time = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '';
-      div.innerHTML = '<span class="log-time">' + esc(time) + '</span>' +
-        (entry.type ? '<span class="log-phase">' + esc(entry.type) + '</span>' : '') +
-        '<div class="log-text">' + esc(entry.message || entry.text || JSON.stringify(entry)) + '</div>';
-      el.appendChild(div);
-    });
-  }).catch(function() {});
-}
-
-// ══════════════════════════════════════════════════════════════
-// CLEAR / RESET BUTTONS
-// ══════════════════════════════════════════════════════════════
-
-// Clear Chat
-document.getElementById('btnChatClear').addEventListener('click', function() {
-  var el = document.getElementById('chatMessages');
-  el.innerHTML = '<div class="chat-msg bot">Hello! I\'m AuthorClaw, your AI writing partner. How can I help you today?</div>';
-  chatHistory = [];
-  chatWaiting = false;
-  removeTypingIndicator();
-  showToast('Chat cleared', 'info');
-});
-
-// Reset Settings to Defaults
-document.getElementById('btnResetSettings').addEventListener('click', function() {
-  if (!confirm('Reset budget, heartbeat, and autonomous settings to defaults? API keys are not affected.')) return;
-  var promises = [
-    api('POST', '/api/config/update', { path: 'costs.dailyLimit', value: 5 }),
-    api('POST', '/api/config/update', { path: 'costs.monthlyLimit', value: 50 }),
-    api('POST', '/api/config/update', { path: 'heartbeat.intervalMinutes', value: 15 }),
-    api('POST', '/api/config/update', { path: 'heartbeat.dailyWordGoal', value: 1000 }),
-    api('POST', '/api/config/update', { path: 'heartbeat.enableReminders', value: true }),
-  ];
-  Promise.all(promises).then(function() {
-    document.getElementById('budgetDaily').value = 5;
-    document.getElementById('budgetMonthly').value = 50;
-    document.getElementById('heartbeatInterval').value = 15;
-    document.getElementById('heartbeatWordGoal').value = 1000;
-    document.getElementById('heartbeatReminders').checked = true;
-    var s = document.getElementById('resetSettingsStatus');
-    s.textContent = 'Settings reset to defaults'; s.style.color = '#27ae60';
-    showToast('Settings reset to defaults!', 'success');
-    setTimeout(function() { s.textContent = ''; }, 5000);
-  }).catch(function(e) {
-    showToast('Failed: ' + e.message, 'error');
-  });
-});
-
-// ══════════════════════════════════════════════════════════════
-// QUICK RESEARCH
-// ══════════════════════════════════════════════════════════════
-
-document.getElementById('btnResearch').addEventListener('click', function() {
-  var query = document.getElementById('researchQuery').value.trim();
-  if (!query) { showToast('Enter a search query', 'info'); return; }
-  var btn = document.getElementById('btnResearch');
-  var resultsDiv = document.getElementById('researchResults');
-  var listDiv = document.getElementById('researchResultsList');
-  btn.disabled = true; btn.textContent = 'Searching...';
-  resultsDiv.style.display = 'block';
-  listDiv.innerHTML = '<span style="color:#7f8c8d;">Searching...</span>';
-
-  api('POST', '/api/research', { query: query, maxResults: 5 }).then(function(data) {
-    btn.disabled = false; btn.textContent = 'Search';
-    if (data.error) {
-      listDiv.innerHTML = '<span style="color:#e74c3c;">' + esc(data.error) + '</span>';
-      if (data.blocked && data.blocked.length > 0) {
-        listDiv.innerHTML += '<br><span style="color:#7f8c8d;font-size:11px;">' + data.blocked.length + ' result(s) blocked (not on allowlist)</span>';
-      }
-      return;
-    }
-    if (!data.results || data.results.length === 0) {
-      listDiv.innerHTML = '<span style="color:#f39c12;">No results from allowed domains. Try a different query or add more domains in Settings.</span>';
-      if (data.blocked && data.blocked.length > 0) {
-        listDiv.innerHTML += '<br><span style="color:#7f8c8d;font-size:11px;">' + data.blocked.length + ' result(s) blocked (not on allowlist)</span>';
-      }
-      return;
-    }
-    listDiv.innerHTML = '';
-    data.results.forEach(function(r) {
-      var item = document.createElement('div');
-      item.style.cssText = 'margin-bottom:12px;padding:10px;background:#1a1a2e;border-radius:8px;border:1px solid #0f3460;';
-      var sourceTag = r.source ? '<span style="font-size:10px;color:#888;background:#1e1e3a;padding:2px 6px;border-radius:4px;margin-left:8px;">' + esc(r.source) + '</span>' : '';
-      var titleHtml = '<div style="font-weight:700;margin-bottom:4px;"><a href="' + esc(r.url) + '" target="_blank" style="color:#3498db;text-decoration:none;">' + esc(r.title) + '</a>' + sourceTag + '</div>';
-      var snippetHtml = r.snippet ? '<div style="font-size:12px;color:#bbb;margin-bottom:4px;">' + esc(r.snippet.substring(0, 200)) + '</div>' : '';
-      var textPreview = r.fullText ? '<div style="font-size:11px;color:#7f8c8d;max-height:60px;overflow:hidden;">' + esc(r.fullText.substring(0, 300)) + '...</div>' : '';
-      item.innerHTML = titleHtml + snippetHtml + textPreview;
-      listDiv.appendChild(item);
-    });
-    if (data.blocked && data.blocked.length > 0) {
-      var blockedNote = document.createElement('div');
-      blockedNote.style.cssText = 'font-size:11px;color:#7f8c8d;margin-top:8px;';
-      blockedNote.textContent = data.blocked.length + ' result(s) filtered (domain not on allowlist)';
-      listDiv.appendChild(blockedNote);
-    }
-  }).catch(function(e) {
-    btn.disabled = false; btn.textContent = 'Search';
-    listDiv.innerHTML = '<span style="color:#e74c3c;">Error: ' + esc(e.message) + '</span>';
-  });
-});
-
-document.getElementById('researchQuery').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') document.getElementById('btnResearch').click();
-});
-
-// ══════════════════════════════════════════════════════════════
-// AGENT REPORT (Home tab)
-// ══════════════════════════════════════════════════════════════
-
-function loadAgentReport() {
-  api('GET', '/api/agent/status').then(function(data) {
-    var el = document.getElementById('agentReportContent');
-    var parts = [];
-
-    // Current activity
-    var statusColor = '#7f8c8d';
-    var statusText = 'Idle';
-    if (data.running) { statusColor = '#2980b9'; statusText = 'Working...'; }
-    else if (data.enabled && !data.paused) { statusColor = '#27ae60'; statusText = 'Active'; }
-    else if (data.paused) { statusColor = '#f39c12'; statusText = 'Paused'; }
-    else { statusColor = '#7f8c8d'; statusText = 'Disabled'; }
-
-    parts.push('<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">');
-    parts.push('<span style="width:10px;height:10px;border-radius:50%;background:' + statusColor + ';display:inline-block;"></span>');
-    parts.push('<span style="font-weight:700;color:' + statusColor + ';">' + statusText + '</span>');
-    if (data.totalStepsExecuted > 0) {
-      parts.push('<span style="color:#7f8c8d;font-size:12px;margin-left:auto;">' + data.totalStepsExecuted + ' steps | ~' + (data.totalWordsGenerated || 0).toLocaleString() + ' words</span>');
-    }
-    parts.push('</div>');
-
-    el.innerHTML = parts.join('');
-
-    // Journal entries
-    return api('GET', '/api/agent/journal');
-  }).then(function(data) {
-    var journalEl = document.getElementById('agentJournalEntries');
-    if (!data.journal || data.journal.length === 0) {
-      journalEl.style.display = 'none';
-      return;
-    }
-    journalEl.style.display = 'block';
-    var typeIcons = { wake: '\u{23F0}', step: '\u{2705}', decision: '\u{1F914}', difficulty: '\u{26A0}\uFE0F', plan: '\u{1F4CB}', improve: '\u{2728}', idle: '\u{1F4A4}' };
-    var typeColors = { wake: '#3498db', step: '#27ae60', decision: '#9b59b6', difficulty: '#e74c3c', plan: '#f39c12', improve: '#2ecc71', idle: '#7f8c8d' };
-    journalEl.innerHTML = '<div style="font-size:11px;font-weight:700;color:#e67e22;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Agent Journal</div>' +
-      data.journal.slice(-15).reverse().map(function(entry) {
-        var time = new Date(entry.timestamp).toLocaleTimeString();
-        var icon = typeIcons[entry.type] || '\u{1F4DD}';
-        var color = typeColors[entry.type] || '#bdc3c7';
-        return '<div style="padding:4px 0;border-bottom:1px solid #0f3460;font-size:12px;">' +
-          '<span style="color:#7f8c8d;">' + esc(time) + '</span> ' +
-          '<span>' + icon + '</span> ' +
-          '<span style="color:' + color + ';font-weight:600;font-size:11px;">' + esc(entry.type || '') + '</span> ' +
-          '<span style="color:#bdc3c7;">' + esc(entry.message) + '</span>' +
-          '</div>';
-      }).join('');
-  }).catch(function() {
-    var el = document.getElementById('agentReportContent');
-    el.innerHTML = '<span style="color:#7f8c8d;">Agent report unavailable</span>';
-  });
-}
-
-// ══════════════════════════════════════════════════════════════
-// PROJECT FILE UPLOAD
-// ══════════════════════════════════════════════════════════════
-
-function triggerProjectUpload(projectId) {
-  // Create hidden file input
-  var input = document.createElement('input');
-  input.type = 'file';
-  input.accept = '.txt,.md,.docx';
-  input.style.display = 'none';
-  document.body.appendChild(input);
-
-  input.addEventListener('change', function() {
-    if (!input.files || input.files.length === 0) { input.remove(); return; }
-    var file = input.files[0];
-    if (file.size > 10 * 1024 * 1024) {
-      showToast('File too large (max 10MB)', 'error');
-      input.remove();
-      return;
-    }
-
-    var formData = new FormData();
-    formData.append('file', file);
-
-    showToast('Uploading ' + file.name + '...', 'info');
-
-    fetch('/api/projects/' + projectId + '/upload', {
-      method: 'POST',
-      body: formData
-    })
-    .then(function(res) { return res.json(); })
-    .then(function(data) {
-      if (data.success) {
-        showToast('Uploaded ' + file.name + ' (' + (data.wordCount || 0) + ' words extracted)', 'success');
-        loadProjects();
-      } else {
-        showToast('Upload failed: ' + (data.error || 'Unknown'), 'error');
-      }
-    })
-    .catch(function(e) {
-      showToast('Upload error: ' + e.message, 'error');
-    })
-    .finally(function() {
-      input.remove();
-    });
-  });
-
-  input.click();
-}
-
-// ══════════════════════════════════════════════════════════════
-// UTILITIES & INIT
-// ══════════════════════════════════════════════════════════════
-
-['budgetDaily', 'budgetMonthly', 'heartbeatWordGoal', 'researchDomains', 'telegramUsers', 'autonomousInterval', 'autonomousMaxSteps', 'autonomousQuietStart', 'autonomousQuietEnd'].forEach(function(id) {
-  var el = document.getElementById(id);
-  if (el) el.addEventListener('input', function() { el._userEdited = true; });
-});
-
-// ══════════════════════════════════════════════════════════════
+// ================================================================
 // INITIALIZATION
-// ══════════════════════════════════════════════════════════════
+// ================================================================
+renderKeyProviders();
+startPolling();
 
-loadKeys();
-loadStatus();
-loadConfig();
-loadTelegramStatus();
-loadProjectTemplates();
-loadProjects();
-loadAuthorOS();
-loadAutonomousStatus();
-loadResearchDomains();
-loadHomeBriefing();
-loadHomeActivity();
-loadAgentReport();
-
-// Poll status every 15s, projects every 10s, autonomous every 10s, home every 30s
-setInterval(loadStatus, 15000);
-setInterval(loadProjects, 10000);
-setInterval(loadAutonomousStatus, 10000);
-setInterval(loadHomeBriefing, 30000);
-setInterval(loadHomeActivity, 30000);
-setInterval(loadAgentReport, 15000);
+})();
 </script>
 </body>
 </html>

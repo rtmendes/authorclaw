@@ -10,6 +10,7 @@
 import { Application, Request, Response } from 'express';
 import multer from 'multer';
 import { generateDocxBuffer } from '../services/docx-export.js';
+import { generateEpubBuffer } from '../services/epub-export.js';
 
 export function createAPIRoutes(app: Application, gateway: any, rootDir?: string): void {
   const services = gateway.getServices();
@@ -19,7 +20,7 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({
       status: 'ok',
-      version: '3.0.0',
+      version: '4.0.0',
       name: 'AuthorClaw',
       brand: 'Writing Secrets',
       uptime: process.uptime(),
@@ -51,7 +52,10 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
       autonomous: services.heartbeat.getAutonomousStatus(),
       permissions: services.permissions.preset,
       cache: services.aiRouter.getCacheStats(),
-      // TTS hidden from status (feature removed from UI)
+      personas: services.personas ? {
+        count: services.personas.getCount(),
+        list: services.personas.list().map((p: any) => ({ id: p.id, penName: p.penName, genre: p.genre })),
+      } : { count: 0, list: [] },
     });
   });
 
@@ -482,7 +486,7 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
     if (!engine) {
       return res.status(503).json({ error: 'Project engine not initialized' });
     }
-    const { type, title, description, context, planning, config } = req.body;
+    const { type, title, description, context, planning, config, personaId } = req.body;
     if (!title || !description) {
       return res.status(400).json({ error: 'title and description required' });
     }
@@ -491,7 +495,15 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
     const inferredType = type || engine.inferProjectType(description);
     if (inferredType === 'novel-pipeline') {
       const project = engine.createNovelPipeline(title, description, config || context);
+      if (personaId) project.personaId = personaId;
       return res.json({ project, planning: 'novel-pipeline' });
+    }
+
+    // Book Production: uses dynamic chapter generation
+    if (inferredType === 'book-production') {
+      const project = engine.createBookProduction(title, description, config || context || {});
+      if (personaId) project.personaId = personaId;
+      return res.json({ project, planning: 'book-production' });
     }
 
     // Dynamic planning: ask the AI to figure out the steps
@@ -499,13 +511,68 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
       const skillCatalog = services.skills.getSkillCatalog();
       const authorOSTools = services.authorOS?.getAvailableTools() || [];
       const project = await engine.planProject(title, description, skillCatalog, authorOSTools, context);
+      if (personaId) project.personaId = personaId;
       return res.json({ project, planning: 'dynamic' });
     }
 
     // Template-based fallback
     const projectType = inferredType;
     const project = engine.createProject(projectType, title, description, context);
+    if (personaId) project.personaId = personaId;
     res.json({ project, planning: 'template' });
+  });
+
+  // ── Pipeline Creation (chains all 6 phases) ──
+  app.post('/api/pipeline/create', async (req: Request, res: Response) => {
+    const engine = gateway.getProjectEngine?.();
+    if (!engine) {
+      return res.status(503).json({ error: 'Project engine not initialized' });
+    }
+    const { title, description, personaId, config } = req.body;
+    if (!title || !description) {
+      return res.status(400).json({ error: 'title and description required' });
+    }
+    try {
+      const result = engine.createPipeline(title, description, personaId, config);
+      res.json({
+        pipelineId: result.pipelineId,
+        phases: result.projects.map((p: any) => ({
+          id: p.id,
+          type: p.type,
+          title: p.title,
+          phase: p.pipelinePhase,
+          steps: p.steps.length,
+          status: p.status,
+        })),
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to create pipeline: ' + String(err) });
+    }
+  });
+
+  // ── Pipeline Status ──
+  app.get('/api/pipeline/:pipelineId', (req: Request, res: Response) => {
+    const engine = gateway.getProjectEngine?.();
+    if (!engine) {
+      return res.status(503).json({ error: 'Project engine not initialized' });
+    }
+    const projects = engine.getPipelineProjects(req.params.pipelineId);
+    if (projects.length === 0) {
+      return res.status(404).json({ error: 'Pipeline not found' });
+    }
+    res.json({
+      pipelineId: req.params.pipelineId,
+      phases: projects.map((p: any) => ({
+        id: p.id,
+        type: p.type,
+        title: p.title,
+        phase: p.pipelinePhase,
+        steps: p.steps.length,
+        completedSteps: p.steps.filter((s: any) => s.status === 'completed' || s.status === 'skipped').length,
+        status: p.status,
+        progress: p.progress,
+      })),
+    });
   });
 
   app.get('/api/projects/list', (req: Request, res: Response) => {
@@ -1393,6 +1460,7 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
       html: 'text/html',
       json: 'application/json',
       mp3: 'audio/mpeg',
+      epub: 'application/epub+zip',
     };
     res.setHeader('Content-Type', mimeTypes[ext || ''] || 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -1463,22 +1531,45 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
       const manuscriptMd = `# ${project.title}\n\n` + chapterContents.join('\n\n---\n\n');
       await wf(j(projectDir, 'manuscript.md'), manuscriptMd, 'utf-8');
 
-      // Also generate DOCX
+      // Get persona info for back matter if available
+      const personaId = (project as any).personaId;
+      const persona = personaId ? services.personas?.get(personaId) : null;
+      const authorName = persona?.penName || 'AuthorClaw';
+
+      const exportFiles = ['manuscript.md'];
+
+      // Generate DOCX with professional formatting
       try {
         const docxBuffer = await generateDocxBuffer({
           title: project.title,
-          author: 'AuthorClaw',
+          author: authorName,
           content: manuscriptMd,
+          authorBio: persona?.bio,
+          alsoBy: persona?.alsoBy,
         });
         await wf(j(projectDir, 'manuscript.docx'), docxBuffer);
+        exportFiles.push('manuscript.docx');
       } catch { /* DOCX generation is non-fatal */ }
+
+      // Generate EPUB
+      try {
+        const epubBuffer = await generateEpubBuffer({
+          title: project.title,
+          author: authorName,
+          content: manuscriptMd,
+          description: project.description,
+          authorBio: persona?.bio,
+        });
+        await wf(j(projectDir, 'manuscript.epub'), epubBuffer);
+        exportFiles.push('manuscript.epub');
+      } catch { /* EPUB generation is non-fatal */ }
 
       const totalWords = manuscriptMd.split(/\s+/).length;
       res.json({
         success: true,
         chapters: chapterContents.length,
         totalWords,
-        files: ['manuscript.md', 'manuscript.docx'],
+        files: exportFiles,
       });
     } catch (err) {
       res.status(500).json({ error: 'Compile failed: ' + String(err) });
@@ -1751,6 +1842,127 @@ ${sourceCode.substring(0, 15000)}
       });
     } catch (error) {
       res.status(500).json({ error: 'Failed to save skill: ' + String(error) });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  // Author Personas
+  // ═══════════════════════════════════════════════════════════
+
+  app.get('/api/personas', (_req: Request, res: Response) => {
+    const personas = services.personas;
+    if (!personas) return res.status(503).json({ error: 'Persona service not initialized' });
+    res.json({ personas: personas.list() });
+  });
+
+  app.get('/api/personas/:id', (req: Request, res: Response) => {
+    const personas = services.personas;
+    if (!personas) return res.status(503).json({ error: 'Persona service not initialized' });
+    const persona = personas.get(req.params.id);
+    if (!persona) return res.status(404).json({ error: 'Persona not found' });
+    res.json(persona);
+  });
+
+  app.post('/api/personas', async (req: Request, res: Response) => {
+    const personas = services.personas;
+    if (!personas) return res.status(503).json({ error: 'Persona service not initialized' });
+    const { penName } = req.body;
+    if (!penName || typeof penName !== 'string') {
+      return res.status(400).json({ error: 'penName is required' });
+    }
+    try {
+      const persona = await personas.create(req.body);
+      res.status(201).json(persona);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to create persona: ' + String(err) });
+    }
+  });
+
+  app.put('/api/personas/:id', async (req: Request, res: Response) => {
+    const personas = services.personas;
+    if (!personas) return res.status(503).json({ error: 'Persona service not initialized' });
+    try {
+      const updated = await personas.update(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: 'Persona not found' });
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update persona: ' + String(err) });
+    }
+  });
+
+  app.delete('/api/personas/:id', async (req: Request, res: Response) => {
+    const personas = services.personas;
+    if (!personas) return res.status(503).json({ error: 'Persona service not initialized' });
+    const deleted = await personas.delete(req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Persona not found' });
+    res.json({ success: true });
+  });
+
+  // AI-assisted persona generation
+  app.post('/api/personas/:id/generate-bio', async (req: Request, res: Response) => {
+    const personas = services.personas;
+    if (!personas) return res.status(503).json({ error: 'Persona service not initialized' });
+    const persona = personas.get(req.params.id);
+    if (!persona) return res.status(404).json({ error: 'Persona not found' });
+
+    try {
+      const provider = services.aiRouter.selectProvider('general');
+      const result = await services.aiRouter.complete({
+        provider: provider.id,
+        system: 'You are a publishing industry expert who creates compelling author bios.',
+        messages: [{
+          role: 'user' as const,
+          content: `Write a professional author bio for a pen name "${persona.penName}" who writes ${persona.genre}${persona.subGenre ? ' (' + persona.subGenre + ')' : ''}. Style: ${persona.voiceDescription || 'engaging and professional'}. Style markers: ${persona.styleMarkers.join(', ') || 'none specified'}. Write in third person, 2-3 sentences, suitable for the back of a book. Return ONLY the bio text.`,
+        }],
+        maxTokens: 300,
+      });
+      if (result.text) {
+        await personas.update(persona.id, { bio: result.text.trim() });
+        res.json({ bio: result.text.trim() });
+      } else {
+        res.status(500).json({ error: 'AI returned empty response' });
+      }
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to generate bio: ' + String(err) });
+    }
+  });
+
+  // AI-assisted full persona generation
+  app.post('/api/personas/generate', async (req: Request, res: Response) => {
+    const personas = services.personas;
+    if (!personas) return res.status(503).json({ error: 'Persona service not initialized' });
+    const { genre, description } = req.body;
+    if (!genre) return res.status(400).json({ error: 'genre is required' });
+
+    try {
+      const provider = services.aiRouter.selectProvider('general');
+      const result = await services.aiRouter.complete({
+        provider: provider.id,
+        system: 'You are a publishing industry expert. Return ONLY valid JSON, no markdown.',
+        messages: [{
+          role: 'user' as const,
+          content: `Create an author persona for someone who writes ${genre}. ${description || ''}\n\nReturn JSON with these fields:\n- penName: a believable pen name for this genre\n- genre: the main genre\n- subGenre: a specific subgenre\n- voiceDescription: 1-2 sentences describing their writing voice/style\n- styleMarkers: array of 3-5 style descriptors (e.g. "witty dialogue", "slow burn")\n- bio: a 2-3 sentence author bio in third person\n\nReturn ONLY the JSON object.`,
+        }],
+        maxTokens: 500,
+      });
+      if (result.text) {
+        // Parse the AI response as JSON
+        const cleaned = result.text.replace(/```json\n?|```\n?/g, '').trim();
+        const generated = JSON.parse(cleaned);
+        const persona = await personas.create({
+          penName: generated.penName || 'New Author',
+          genre: generated.genre || genre,
+          subGenre: generated.subGenre || '',
+          voiceDescription: generated.voiceDescription || '',
+          styleMarkers: generated.styleMarkers || [],
+          bio: generated.bio || '',
+        });
+        res.status(201).json(persona);
+      } else {
+        res.status(500).json({ error: 'AI returned empty response' });
+      }
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to generate persona: ' + String(err) });
     }
   });
 

@@ -1,20 +1,16 @@
 /**
- * AuthorClaw Project Engine
- * Autonomous project-based task planning and execution
+ * AuthorClaw Project Engine — V4
+ * Autonomous book production at scale
  *
- * The user defines what they want to achieve,
- * and AuthorClaw autonomously selects the right tools, prompts, skills,
- * and workflows to accomplish it.
+ * 6 Core Project Types (chainable into a Pipeline):
+ *   book-planning    - Market analysis → premise → characters → outline → synopsis
+ *   book-bible       - World-building → character bible → continuity → style guide
+ *   book-production  - Write chapters sequentially with context injection
+ *   deep-revision    - 21-step, 3-pass revision (macro → medium → micro + beta readers)
+ *   format-export    - Front/back matter → DOCX/EPUB/PDF export (KDP-ready)
+ *   book-launch      - Blurb → Amazon desc → keywords → ad copy → social posts
  *
- * Project types:
- *   planning     - Story planning, outlining, brainstorming
- *   research     - Market research, fact-finding, comp analysis
- *   worldbuild   - Book bible, characters, settings, timelines
- *   writing      - Drafting chapters, scenes, prose
- *   revision     - Editing, feedback, consistency checks
- *   promotion    - Blurbs, query letters, social media, ads
- *   analysis     - Style analysis, manuscript autopsy, voice matching
- *   export       - Format and export manuscripts
+ * Pipeline Mode: Chain all 6 phases from a single idea + persona
  */
 
 import { AuthorOSService } from './author-os.js';
@@ -45,16 +41,14 @@ export type AICompleteFunc = (request: {
 export type AISelectProviderFunc = (taskType: string) => { id: string };
 
 export type ProjectType =
-  | 'planning'
-  | 'research'
-  | 'worldbuild'
-  | 'writing'
-  | 'revision'
+  | 'book-planning'
+  | 'book-bible'
+  | 'book-production'
   | 'deep-revision'
-  | 'promotion'
-  | 'analysis'
-  | 'export'
+  | 'format-export'
+  | 'book-launch'
   | 'novel-pipeline'
+  | 'pipeline'
   | 'custom';
 
 export interface Project {
@@ -69,6 +63,9 @@ export interface Project {
   updatedAt: string;
   completedAt?: string;
   context: Record<string, any>;
+  personaId?: string;     // Author persona assigned to this project
+  pipelineId?: string;    // Parent pipeline ID (if part of a pipeline)
+  pipelinePhase?: number; // Phase order within pipeline (1-6)
 }
 
 export interface ProjectStep {
@@ -133,571 +130,827 @@ const TASK_TYPE_MAP: Record<string, string> = {
 };
 
 const PROJECT_TEMPLATES: ProjectTemplate[] = [
+  // ═══════════════════════════════════════════════════════════
+  // Template 1: Book Planning
+  // ═══════════════════════════════════════════════════════════
   {
-    type: 'planning',
-    label: 'Story Planning',
-    description: 'Develop a story from concept to detailed outline',
+    type: 'book-planning',
+    label: 'Book Planning',
+    description: 'Market analysis, premise development, characters, chapter outline, and synopsis',
     steps: [
+      {
+        label: 'Market & genre analysis',
+        skill: 'research',
+        taskType: 'research',
+        promptTemplate: `Analyze the current market for this type of book: {{description}}
+
+Research and report on:
+1. **Genre landscape**: Top-selling comparable titles in this genre/subgenre
+2. **Reader expectations**: What tropes, conventions, and beats does this genre demand?
+3. **Market gaps**: What's underserved? Where's the opportunity?
+4. **Comp titles**: Identify 3-5 comparable titles with why they're relevant
+5. **Target audience**: Demographics, reading habits, where they discover books
+6. **Commercial viability**: Honest assessment of market potential
+
+Be specific and actionable. This informs every decision that follows.`,
+      },
       {
         label: 'Develop premise',
         skill: 'premise',
         taskType: 'general',
-        promptTemplate: 'Help me develop this story concept into a strong premise: {{description}}. Create a compelling logline, identify the core conflict, stakes, and theme.',
+        promptTemplate: `Develop a commercially viable premise for: {{description}}
+
+Using the market analysis, create:
+1. **Logline**: 1-2 sentences that sell the book
+2. **What-If question**: The central hook
+3. **Core conflict**: Internal and external
+4. **Stakes**: What happens if the protagonist fails? (personal, professional, global)
+5. **Theme statement**: The book's deeper argument about life
+6. **Unique hook**: What makes THIS book stand out from the comp titles?
+7. **Genre promise**: What emotional experience are we delivering?
+
+Make this premise commercially compelling AND creatively exciting.`,
       },
       {
-        label: 'Create character profiles',
+        label: 'Character profiles',
         skill: 'book-bible',
-        toolSuggestion: 'book-bible',
         taskType: 'book_bible',
-        promptTemplate: 'Based on this premise: {{description}}\n\nCreate detailed character profiles for the protagonist and 3-4 key supporting characters. Include: name, age, background, motivation, internal conflict, external conflict, arc, and key relationships.',
+        promptTemplate: `Create detailed character profiles for: {{description}}
+
+Build out:
+**Protagonist**: Full name, age, backstory, motivation (want vs need), fatal flaw, emotional wound, strengths, appearance, speech patterns, character arc
+**Antagonist**: Motivation, backstory, why they believe they're right, how they challenge the protagonist
+**3-4 Supporting characters**: Name, role, relationship to protagonist, how they advance/challenge the arc
+
+Each character should feel real — contradictions, desires, fears. Write 800+ words total.`,
       },
       {
-        label: 'Build world and setting',
-        skill: 'book-bible',
-        toolSuggestion: 'book-bible',
-        taskType: 'book_bible',
-        promptTemplate: 'Based on this premise: {{description}}\n\nBuild out the world and setting. Include: locations (with sensory details), time period, social/political context, rules/constraints of the world, and atmosphere.',
-      },
-      {
-        label: 'Create story outline',
+        label: 'Chapter-by-chapter outline',
         skill: 'outline',
-        toolSuggestion: 'workflow-engine',
         taskType: 'outline',
-        promptTemplate: 'Using this premise and the characters/world we developed: {{description}}\n\nCreate a detailed chapter-by-chapter outline. For each chapter include: chapter title, POV character, key events, emotional arc, and how it advances the main plot.',
+        promptTemplate: `Create a detailed chapter-by-chapter outline for: {{description}}
+
+For each chapter include:
+- **Chapter number & title**
+- **POV character**
+- **Key beats** (3-5 per chapter)
+- **Turning points** and revelations
+- **Tension level** (1-10)
+- **Chapter ending hook**
+
+Structure using three-act beats:
+- Act 1 (25%): Setup, inciting incident, debate/refusal
+- Act 2A (25%): Rising action, fun & games, midpoint shift
+- Act 2B (25%): Complications, all-is-lost moment
+- Act 3 (25%): Climax sequence, resolution
+
+Target 20-30 chapters. Number EVERY chapter.`,
       },
       {
-        label: 'Review and refine',
+        label: 'Synopsis generation',
+        skill: 'outline',
+        taskType: 'general',
+        promptTemplate: `Generate professional synopses for: {{description}}
+
+Create two versions:
+1. **One-page synopsis** (~500 words): Complete story arc including the ending. Professional query format.
+2. **Three-page synopsis** (~1500 words): Expanded with character arcs, key scenes, and emotional beats.
+
+Both should:
+- Reveal the entire plot (including ending — this is for industry professionals)
+- Show the character's emotional journey
+- Demonstrate clear story structure
+- Be written in present tense, third person
+- Feel compelling to read, not just dutiful`,
+      },
+      {
+        label: 'Review & refine plan',
         skill: 'revise',
         taskType: 'revision',
-        promptTemplate: 'Review the complete story plan we created. Check for: plot holes, pacing issues, character consistency, thematic coherence, and narrative tension. Suggest specific improvements.',
+        promptTemplate: `Review the complete book plan we've built. Check for:
+
+1. **Plot holes**: Any logical gaps in the outline?
+2. **Character consistency**: Do motivations and arcs make sense?
+3. **Pacing issues**: Any dead zones or rushed sections in the outline?
+4. **Theme coherence**: Does every subplot reinforce the theme?
+5. **Commercial viability**: Does this match the market analysis findings?
+6. **Genre compliance**: Are all genre promises being fulfilled?
+
+Provide specific improvements, not vague suggestions. Reference chapter numbers and character names.`,
       },
     ],
   },
+
+  // ═══════════════════════════════════════════════════════════
+  // Template 2: Book Bible
+  // ═══════════════════════════════════════════════════════════
   {
-    type: 'research',
-    label: 'Research & Market Analysis',
-    description: 'Research genre, market, and subject matter for your book',
+    type: 'book-bible',
+    label: 'Book Bible',
+    description: 'World-building, character bible, continuity tracker, themes, and style reference',
     steps: [
       {
-        label: 'Genre analysis',
-        skill: 'market-research',
-        taskType: 'research',
-        promptTemplate: 'Analyze the current market for this type of book: {{description}}. What are the top-selling comparable titles? What tropes and conventions does the genre expect? What are readers looking for?',
-      },
-      {
-        label: 'Subject matter research',
-        skill: 'research',
-        taskType: 'research',
-        promptTemplate: 'Research the key subject matter areas for: {{description}}. Provide factual background information, terminology, and details I need to write authentically about this topic.',
-      },
-      {
-        label: 'Audience profiling',
-        skill: 'market-research',
-        taskType: 'research',
-        promptTemplate: 'Profile the ideal reader for: {{description}}. Demographics, reading habits, what they love in books, what frustrates them, where they discover new books, and what would make them recommend this book.',
-      },
-      {
-        label: 'Competitive positioning',
-        skill: 'market-research',
-        taskType: 'marketing',
-        promptTemplate: 'Based on our research for: {{description}}\n\nHow should this book be positioned in the market? What makes it unique? What comp titles would you use in a query letter? What categories/keywords should it target?',
-      },
-    ],
-  },
-  {
-    type: 'worldbuild',
-    label: 'World Building',
-    description: 'Create a comprehensive book bible with characters, settings, and lore',
-    steps: [
-      {
-        label: 'Core world rules',
+        label: 'World-building document',
         skill: 'book-bible',
-        toolSuggestion: 'book-bible',
         taskType: 'book_bible',
-        promptTemplate: 'Create the foundational world rules for: {{description}}. Include: physical laws/magic system, technology level, social structures, power dynamics, history (key events), and any unique constraints.',
+        promptTemplate: `Create a comprehensive world-building document for: {{description}}
+
+Include:
+1. **Setting**: Physical environment, geography, climate, key locations with sensory details
+2. **Time period**: When does this take place? Historical/futuristic context
+3. **Social structures**: Power dynamics, social classes, political systems
+4. **Rules**: Laws of physics/magic, technology, what's possible and what isn't
+5. **Culture**: Customs, beliefs, languages, food, entertainment
+6. **History**: Key events that shaped this world before the story begins
+7. **Economy**: How do people earn a living? What's valuable?
+8. **Daily life**: What does an ordinary day look like for ordinary people?
+
+Write 1000+ words. Be specific enough that a writer could maintain consistency across 80,000 words.`,
       },
       {
-        label: 'Major locations',
+        label: 'Character bible',
         skill: 'book-bible',
-        toolSuggestion: 'book-bible',
         taskType: 'book_bible',
-        promptTemplate: 'Build out the major locations for: {{description}}. For each location: name, physical description, atmosphere, who lives/works there, significance to the plot, and sensory details (sounds, smells, textures).',
+        promptTemplate: `Create deep character profiles for: {{description}}
+
+For EACH major character (protagonist, antagonist, 3-4 supporting):
+- **Full name** and any nicknames
+- **Age, appearance** (specific: eye color, hair, height, distinguishing marks)
+- **Personality**: Myers-Briggs type, enneagram, core fear, core desire
+- **Backstory**: 200+ words of formative experiences
+- **Voice**: Speech patterns, vocabulary level, verbal tics, sentence style
+- **Arc**: Where they start → what changes → where they end
+- **Relationships**: Map to other characters with dynamic description
+- **Secrets**: What are they hiding? From whom?
+
+Also create a **relationship web** showing how all characters connect.`,
       },
       {
-        label: 'Character ensemble',
-        skill: 'book-bible',
-        toolSuggestion: 'book-bible',
-        taskType: 'book_bible',
-        promptTemplate: 'Create the complete character ensemble for: {{description}}. For each character: full name, age, appearance, personality (strengths/flaws), backstory, motivation, relationships with other characters, speech patterns, and character arc.',
-      },
-      {
-        label: 'Timeline and history',
-        skill: 'book-bible',
-        toolSuggestion: 'book-bible',
-        taskType: 'book_bible',
-        promptTemplate: 'Create a detailed timeline for: {{description}}. Include: backstory events before the novel begins, the chronological sequence of the plot, and any future implications. Note which characters are present at each key event.',
-      },
-      {
-        label: 'Consistency rules',
+        label: 'Series continuity tracker',
         skill: 'book-bible',
         taskType: 'consistency',
-        promptTemplate: 'Create a consistency guide/style sheet for: {{description}}. Include: naming conventions, spelling of made-up terms, character physical descriptions (hair, eyes, height), recurring phrases, technology rules, and any other details that must remain consistent.',
+        promptTemplate: `Create a continuity tracking document for: {{description}}
+
+This is the master reference for maintaining consistency. Include:
+1. **Character tracking sheet**: Physical details, introduced in chapter X, status (alive/dead/missing)
+2. **Timeline**: Day-by-day chronology of events in the story
+3. **Location details**: Room layouts, distances between places, what's where
+4. **Object tracking**: Important items — who has them, where they are
+5. **Plot thread tracker**: Every promise/setup and where it's resolved
+6. **Name registry**: All proper nouns with consistent spelling
+7. **Rules reference**: Quick-lookup for world rules (magic costs, tech limits, etc.)
+
+Format as a reference guide a writer can quickly scan while writing.`,
+      },
+      {
+        label: 'Theme & motif guide',
+        skill: 'book-bible',
+        taskType: 'book_bible',
+        promptTemplate: `Create a theme and motif guide for: {{description}}
+
+Analyze and document:
+1. **Central theme**: What argument is this book making about human nature/life?
+2. **Supporting themes**: 2-3 secondary themes that reinforce the central one
+3. **Recurring motifs**: Images, objects, or situations that appear repeatedly
+4. **Symbolic elements**: What represents what? (settings, weather, objects, colors)
+5. **Theme per subplot**: How each subplot explores a facet of the theme
+6. **Thematic arc**: How the theme develops across the story's structure
+7. **Motif placement guide**: Where each motif should appear for maximum impact
+
+This guide ensures every scene serves the deeper meaning of the book.`,
+      },
+      {
+        label: 'Style & tone reference',
+        skill: 'style-clone',
+        taskType: 'style_analysis',
+        promptTemplate: `Create a style and tone reference guide for: {{description}}
+
+Document the writing voice this book requires:
+1. **Tone**: Dark? Humorous? Lyrical? Sharp? Warm? Describe with examples
+2. **Prose style**: Sentence length tendencies, vocabulary level, rhythm
+3. **POV approach**: Deep POV? Omniscient? How close to the character's thoughts?
+4. **Tense**: Past or present? Why?
+5. **Dialogue style**: Naturalistic? Stylized? Snappy? Formal?
+6. **Description approach**: Lush and detailed? Sparse and punchy?
+7. **Sample paragraph**: Write a 200-word example paragraph in the target voice
+8. **Voice DON'Ts**: What should the writing NOT sound like?
+
+If an author persona is assigned, integrate their voice profile into this guide.`,
       },
     ],
   },
+
+  // ═══════════════════════════════════════════════════════════
+  // Template 3: Book Production (stub — chapters generated dynamically)
+  // ═══════════════════════════════════════════════════════════
+  {
+    type: 'book-production',
+    label: 'Book Production',
+    description: 'Write chapters sequentially with full context injection — write, self-review, and compile',
+    steps: [], // Dynamic: chapters auto-generated based on config (like novel-pipeline writing phase)
+  },
+
+  // ═══════════════════════════════════════════════════════════
+  // Template 4: Deep Revision (21 steps, 3 passes)
+  // ═══════════════════════════════════════════════════════════
+  {
+    type: 'deep-revision',
+    label: 'Deep Revision',
+    description: '21-step, 3-pass manuscript revision — macro (structural), medium (scene-level), micro (line-level) + beta reader panel',
+    steps: [
+      // ── Pass 1: Macro / Structural (7 steps) ──
+      {
+        label: 'Plot structure analysis',
+        skill: 'revise',
+        taskType: 'revision',
+        promptTemplate: `Analyze the plot structure of this manuscript:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+Evaluate:
+1. **Three-act structure compliance**: Is there a clear setup, confrontation, and resolution?
+2. **Inciting incident**: When does it occur? Is it strong enough? Too early/late?
+3. **Midpoint shift**: Is there a genuine reversal or revelation at the midpoint?
+4. **All-is-lost moment**: Does the 75% mark deliver real despair?
+5. **Climax**: Is it earned? Does it resolve the central conflict?
+6. **Resolution**: Is it satisfying without being too neat?
+7. **Hero's journey beats**: Which archetypes are present? Which are missing?
+
+Rate structural integrity: 1-10. Provide specific chapter references for every issue.`,
+      },
+      {
+        label: 'Pacing audit',
+        skill: 'revise',
+        taskType: 'revision',
+        promptTemplate: `Create a chapter-by-chapter pacing heatmap for:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+For EACH chapter: Tension (1-10) | Pacing (Too Fast/Fast/Good/Slow/Draggy) | Scene types | Energy
+
+Then analyze:
+- Where are the energy valleys? Should chapters be cut or combined?
+- Do climactic moments land with proper setup?
+- Is the action-to-reflection ratio balanced?
+- Are chapter lengths consistent? Do variations serve the story?
+- Do the first 3 chapters build enough momentum?
+
+End with top 3 pacing fixes, prioritized by impact.`,
+      },
+      {
+        label: 'Character arc consistency',
+        skill: 'revise',
+        taskType: 'revision',
+        promptTemplate: `Check character arc consistency across:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+For each major character:
+1. **Arc mapping**: Where they start → key turning points → where they end
+2. **Growth evidence**: What specific scenes show change?
+3. **Regression moments**: Are setbacks believable?
+4. **Arc completion**: Does the ending deliver on the character's promise?
+5. **Motivation consistency**: Do they ever act out of character for plot convenience?
+
+Flag any character who doesn't change, changes too abruptly, or acts inconsistently.`,
+      },
+      {
+        label: 'Theme coherence review',
+        skill: 'revise',
+        taskType: 'revision',
+        promptTemplate: `Analyze thematic coherence in:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+1. **Central theme identification**: What is this book really about beneath the plot?
+2. **Theme in subplots**: Does each subplot reinforce or contrast the central theme?
+3. **Thematic drift**: Are there sections where the theme gets lost?
+4. **Theme in character arcs**: How does each character's journey explore the theme?
+5. **Thematic resolution**: Does the ending make a clear statement about the theme?
+6. **Heavy-handedness**: Are there moments where theme becomes preachy?`,
+      },
+      {
+        label: 'World-building continuity scan',
+        skill: 'revise',
+        taskType: 'consistency',
+        promptTemplate: `Run a world-building continuity scan on:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+Check for:
+1. **Setting contradictions**: Room layouts, geography, distances between locations
+2. **Rule violations**: Magic/tech/social rules that get broken without explanation
+3. **Timeline errors**: Days, dates, seasons, time-of-day inconsistencies
+4. **Character knowledge**: Does anyone know something they shouldn't?
+5. **Dead/missing characters**: Anyone disappears without explanation?
+6. **Object tracking**: Important items that appear/disappear without logic
+
+For each issue: where it appears, what the contradiction is, and how to fix it. Organized by severity.`,
+      },
+      {
+        label: 'Stakes escalation verification',
+        skill: 'revise',
+        taskType: 'revision',
+        promptTemplate: `Verify that stakes escalate properly in:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+Analyze:
+1. **Personal stakes**: What does the protagonist personally lose if they fail? Does this deepen?
+2. **External stakes**: How do consequences widen over the story?
+3. **Urgency**: Is there a ticking clock? Does time pressure increase?
+4. **Cost of action**: Does pursuing the goal cost more as the story progresses?
+5. **Point of no return**: When can the protagonist no longer walk away?
+6. **Stakes at climax**: Are the final stakes the highest they've been?
+
+Flag any moment where stakes plateau, decrease, or feel artificial.`,
+      },
+      {
+        label: 'Subplot tracking & resolution',
+        skill: 'revise',
+        taskType: 'revision',
+        promptTemplate: `Track all subplots in:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+For each subplot found:
+1. **Introduction**: When and how is it introduced?
+2. **Purpose**: How does it serve the main plot or theme?
+3. **Key beats**: Major developments (with chapter references)
+4. **Resolution**: How and when is it resolved?
+5. **Dropped threads**: Was anything set up but never paid off?
+
+Also check:
+- Are any subplots redundant? Do two accomplish the same thing?
+- Are any subplots underdeveloped?
+- Do subplots interfere with pacing?`,
+      },
+
+      // ── Pass 2: Medium / Scene-Level (7 steps) ──
+      {
+        label: 'Dialogue authenticity pass',
+        skill: 'dialogue',
+        taskType: 'revision',
+        promptTemplate: `Perform a dialogue authenticity audit on:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+1. **Voice distinctiveness**: Rate each major character's voice uniqueness (1-10). Can you tell them apart?
+2. **Info-dumping**: Flag "As you know, Bob..." moments
+3. **Subtext quality**: Best and worst examples of saying vs meaning
+4. **Speech patterns**: Note unique patterns per character
+5. **Tag vs action beat ratio**: Are they balanced?
+6. **Emotional authenticity**: Do emotional conversations ring true?
+
+Suggest rewrites for the 5 worst dialogue passages.`,
+      },
+      {
+        label: 'Show-don\'t-tell audit',
+        skill: 'revise',
+        taskType: 'revision',
+        promptTemplate: `Scan for show vs tell issues in:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+Flag: emotional telling, character description telling, backstory dumps, motivation telling, atmosphere telling.
+
+For the 10 worst offenders: quote the original → write a "showing" rewrite → explain why it's stronger.
+
+Note: some telling is FINE. Only flag cases where showing would genuinely improve the experience.`,
+      },
+      {
+        label: 'Scene tension & conflict check',
+        skill: 'revise',
+        taskType: 'revision',
+        promptTemplate: `Check every scene for tension and conflict:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+For each scene:
+- **Goal**: What does the POV character want in this scene?
+- **Obstacle**: What's preventing them from getting it?
+- **Stakes**: What happens if they fail?
+- **Outcome**: Do they succeed, fail, or get a complicated result?
+
+Flag any scene where:
+- The character has no goal
+- There's no opposition
+- Nothing changes by the end
+- The tension is purely internal with no external manifestation
+
+These are scenes that may need to be cut or strengthened.`,
+      },
+      {
+        label: 'Transition smoothness review',
+        skill: 'revise',
+        taskType: 'revision',
+        promptTemplate: `Review all transitions in:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+Check:
+1. **Chapter transitions**: Does each chapter end with a hook and begin with orientation?
+2. **Scene breaks**: Are time/location jumps clear?
+3. **POV shifts**: If multi-POV, are switches smooth and clearly signaled?
+4. **Timeline jumps**: Are flashbacks/flash-forwards handled well?
+5. **Tone shifts**: Do tonal changes feel intentional or jarring?
+
+Flag the 5 roughest transitions and suggest smoother alternatives.`,
+      },
+      {
+        label: 'Emotional beat mapping',
+        skill: 'revise',
+        taskType: 'revision',
+        promptTemplate: `Map the emotional journey in:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+Chapter by chapter, identify:
+- **Dominant emotion**: What should the reader feel?
+- **Emotional high point**: The strongest moment
+- **Emotional low point**: The most vulnerable/sad moment
+- **Emotional variety**: Does each chapter offer a different emotional flavor?
+
+Then assess:
+- Is there enough emotional variety or does it feel monotone?
+- Do big emotional moments land? Are they properly set up?
+- Is the emotional climax the strongest moment in the book?
+- Are there enough quiet, intimate moments between action?`,
+      },
+      {
+        label: 'Sensory detail enhancement',
+        skill: 'revise',
+        taskType: 'revision',
+        promptTemplate: `Audit sensory details in:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+1. **Sense inventory**: Which of the 5 senses are used? Which are underused?
+2. **Visual-heavy check**: Is the writing too visual with not enough sound, smell, touch, taste?
+3. **Key scenes**: Are pivotal scenes richly grounded in sensory experience?
+4. **Setting atmosphere**: Do locations have distinctive sensory signatures?
+5. **Character-filtered**: Are sensory details filtered through the POV character's personality?
+
+Identify 5-10 scenes that would benefit most from sensory enrichment and suggest specific details.`,
+      },
+      {
+        label: 'Info-dump & exposition detection',
+        skill: 'revise',
+        taskType: 'revision',
+        promptTemplate: `Scan for info-dumps and exposition problems in:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+Flag every instance of:
+1. **Backstory dumps**: Paragraphs of history interrupting the action
+2. **World-building lectures**: Characters explaining things the reader doesn't need yet
+3. **As-you-know-Bob dialogue**: Characters telling each other things they already know
+4. **Mirror descriptions**: Character describing their own appearance while looking in a mirror
+5. **Prologue info-dump**: Does the opening front-load too much context?
+
+For each: quote the passage, explain why it's a problem, and suggest how to weave the information in naturally (through action, dialogue subtext, or gradual revelation).`,
+      },
+
+      // ── Pass 3: Micro / Line-Level (5 steps) ──
+      {
+        label: 'Copy edit pass',
+        skill: 'revise',
+        taskType: 'final_edit',
+        promptTemplate: `Perform a copy edit pass on:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+Check for:
+- Grammar errors
+- Punctuation issues (especially dialogue punctuation)
+- Spelling mistakes
+- Homophone errors (their/there/they're, its/it's)
+- Subject-verb agreement
+- Tense consistency
+- Comma splices and run-on sentences
+
+List all errors found with chapter/location and correction.`,
+      },
+      {
+        label: 'Line edit pass',
+        skill: 'revise',
+        taskType: 'final_edit',
+        promptTemplate: `Perform a line edit pass on:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+Focus on:
+- **Prose rhythm**: Sentence length variety, flow, musicality
+- **Word choice**: Precision, specificity, avoiding generic words
+- **Verb strength**: Replace weak verbs (was, had, got) with vivid ones
+- **Clarity**: Any confusing sentences or ambiguous references?
+- **Redundancy**: Phrases that say the same thing twice
+
+Show 10 before/after examples of line-level improvements.`,
+      },
+      {
+        label: 'Repetition finder',
+        skill: 'revise',
+        taskType: 'revision',
+        promptTemplate: `Find overused words and phrases in:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+Report on:
+1. **Overused words**: Adverbs, weak verbs, filler words with frequency
+2. **Crutch phrases**: Repeated constructions the author leans on
+3. **AI-sounding words**: delve, tapestry, testament, visceral, nuanced, multifaceted, resonate, paradigm, myriad, beacon, realm
+4. **Repetitive openers**: Sentence-starting patterns
+5. **Passive voice frequency** (target: <10%)
+6. **Adverb density** (target: <5 per 1000 words)
+
+For each: word/phrase, frequency, example, and suggested alternatives.`,
+      },
+      {
+        label: 'Crutch word elimination',
+        skill: 'revise',
+        taskType: 'final_edit',
+        promptTemplate: `Eliminate crutch words from:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+Specific targets:
+- **Just, really, very, quite, actually, basically, literally** — flag every instance, suggest which to cut
+- **Suddenly** — almost always cuttable, show the action instead
+- **Felt/feeling** — usually telling, show the sensation
+- **Started to / began to** — just do the action
+- **Seemed / appeared** — be more direct
+- **That** — flag unnecessary instances
+- **Nodded/shrugged/sighed** — overused physical beats
+
+Provide a prioritized cut list with estimated word savings.`,
+      },
+      {
+        label: 'Sensitivity read',
+        skill: 'revise',
+        taskType: 'revision',
+        promptTemplate: `Perform a sensitivity read on:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+Check for:
+1. **Cultural representation**: Are characters from diverse backgrounds portrayed authentically?
+2. **Stereotypes**: Any characters reduced to stereotypes?
+3. **Language sensitivity**: Outdated or potentially offensive terms?
+4. **Power dynamics**: Are marginalized characters given agency?
+5. **Historical accuracy**: If set in a real period/place, are cultural details accurate?
+6. **Unconscious bias**: Any patterns in which characters are villains, heroes, or victims?
+
+Note: This is a preliminary read. For publication, a human sensitivity reader is recommended. Flag potential issues for professional review.`,
+      },
+
+      // ── Final: Beta Readers + Synthesis ──
+      {
+        label: 'Beta reader panel',
+        skill: 'beta-reader',
+        taskType: 'revision',
+        promptTemplate: `You are a panel of 5 beta readers with different perspectives. Read and respond:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+**Reader 1 — The Casual Reader**: Gut reactions, where you got bored, enjoyment rating 1-10
+**Reader 2 — The Genre Expert**: Genre compliance, trope execution, market positioning, rating 1-10
+**Reader 3 — The Harsh Critic**: Plot holes, weak motivations, clichés, the single biggest problem
+**Reader 4 — The Target Reader**: Emotional journey, favorite scenes, would you recommend? Rating 1-10
+**Reader 5 — The Romance/Thriller Super-Fan**: What made you keep reading? What almost made you stop? Pre-order the sequel?
+
+Keep each reader's response to 200-300 words. Be specific with chapter references.`,
+      },
+      {
+        label: 'Final revision action plan',
+        skill: 'revise',
+        taskType: 'revision',
+        promptTemplate: `Synthesize ALL 20 prior revision passes into a final action plan:
+
+**Manuscript**: "{{title}}" — {{description}}
+
+Create:
+1. **Overall Grade**: A-F with justification
+2. **Top 5 Strengths**: What to keep and amplify
+3. **Critical Fixes** (5-7 must-do items, ranked by priority)
+4. **Important Improvements** (5-7 should-do items)
+5. **Polish Items** (3-5 nice-to-have refinements)
+6. **Revision Roadmap**: Pass 1 → Pass 2 → Pass 3 order of operations
+7. **Market Readiness**: Ready for beta readers? Agent? Self-publishing?
+8. **Encouraging Close**: What makes this book worth finishing
+
+Make every recommendation specific and actionable with chapter references.`,
+      },
+    ],
+  },
+
+  // ═══════════════════════════════════════════════════════════
+  // Template 5: Format & Export
+  // ═══════════════════════════════════════════════════════════
+  {
+    type: 'format-export',
+    label: 'Format & Export',
+    description: 'Generate front/back matter and export as DOCX, EPUB, and PDF — KDP-ready formatting',
+    steps: [
+      {
+        label: 'Generate front matter',
+        skill: 'format',
+        taskType: 'general',
+        promptTemplate: `Generate professional front matter for: {{description}}
+
+Create:
+1. **Title page**: Title, subtitle (if any), author name
+2. **Copyright page**: Standard indie publishing copyright notice with year, all rights reserved, ISBN placeholder, edition info
+3. **Dedication**: A placeholder dedication (author can customize)
+4. **Table of Contents**: Auto-generated from chapter headings (placeholder — will be filled during export)
+5. **Epigraph** (optional): Suggest a thematic quote if appropriate
+
+Format each as clean markdown sections with clear dividers.`,
+      },
+      {
+        label: 'Generate back matter',
+        skill: 'format',
+        taskType: 'marketing',
+        promptTemplate: `Generate professional back matter for: {{description}}
+
+Create:
+1. **Author bio**: Professional 3rd-person bio (use persona bio if available, otherwise create a template)
+2. **Also By section**: List of other titles (from persona's alsoBy list if available, otherwise placeholder)
+3. **Newsletter CTA**: "Join [Author]'s readers list for exclusive content, early access, and bonus scenes. Sign up at: [URL]"
+4. **Acknowledgments**: Template with common categories (agent, editor, family, readers)
+5. **Preview**: First chapter teaser of next book (placeholder)
+
+Format each as clean markdown. Keep the tone professional and genre-appropriate.`,
+      },
+      {
+        label: 'Compile & export DOCX',
+        skill: 'format',
+        taskType: 'general',
+        promptTemplate: `Compile the manuscript with front and back matter into a professional DOCX format for: {{description}}
+
+The export system will:
+- Combine front matter + chapters + back matter
+- Apply KDP-standard formatting (chapter headings, scene breaks, page breaks)
+- Set professional typography (serif font, justified text, proper margins)
+- Generate downloadable DOCX file
+
+Confirm the manuscript is ready for export. List the chapter count, estimated word count, and any missing sections that should be addressed before publishing.`,
+      },
+      {
+        label: 'Compile & export EPUB',
+        skill: 'format',
+        taskType: 'general',
+        promptTemplate: `Generate EPUB export for: {{description}}
+
+The export system will:
+- Create valid EPUB3 with proper metadata (title, author, description)
+- Split chapters into individual XHTML files
+- Include cover image placeholder
+- Generate navigation TOC
+- Apply clean reading CSS
+
+Confirm EPUB readiness. Note any elements that may not render well on e-readers.`,
+      },
+    ],
+  },
+
+  // ═══════════════════════════════════════════════════════════
+  // Template 6: Book Launch
+  // ═══════════════════════════════════════════════════════════
+  {
+    type: 'book-launch',
+    label: 'Book Launch',
+    description: 'Back cover blurb, Amazon description, keywords, categories, ad copy, and social media posts',
+    steps: [
+      {
+        label: 'Back cover blurb',
+        skill: 'blurb-writer',
+        taskType: 'marketing',
+        promptTemplate: `Write compelling book blurbs for: {{description}}
+
+Create 3 versions:
+1. **Short tagline** (1 sentence): The elevator pitch
+2. **Back cover blurb** (150-200 words): The hook, the setup, the stakes, the question
+3. **Long blurb** (250-300 words): Expanded version with more character and world detail
+
+Each should:
+- Hook from the first line
+- Convey genre and tone immediately
+- End with a compelling question or stakes statement
+- NEVER reveal the ending
+- Match the expectations of the target genre audience`,
+      },
+      {
+        label: 'Amazon book description',
+        skill: 'blurb-writer',
+        taskType: 'marketing',
+        promptTemplate: `Create an Amazon-optimized book description for: {{description}}
+
+Format with HTML tags Amazon supports:
+- <b>bold</b> for emphasis
+- <br> for line breaks
+- <i>italic</i> for titles and emphasis
+
+Structure:
+1. **Opening hook** (bold, attention-grabbing)
+2. **Character introduction** (who are they, what do they want)
+3. **Conflict & stakes** (what stands in the way, what happens if they fail)
+4. **Genre signals** (tropes, tone, comp titles: "Perfect for fans of...")
+5. **Call to action** (bold: "Buy now" or "Start reading today")
+
+Also include a review quote template: "___ ★★★★★" format.`,
+      },
+      {
+        label: 'Amazon categories & keywords',
+        skill: 'research',
+        taskType: 'research',
+        promptTemplate: `Research Amazon categories and keywords for: {{description}}
+
+Provide:
+1. **7 Keywords/phrases** (max 50 chars each): Research-backed keywords that readers search for. Mix specific tropes + genre terms + emotional hooks
+2. **2 BISAC categories**: The best-fit primary and secondary categories
+3. **Amazon browse categories**: 2-3 specific Amazon category paths (e.g., Kindle Store > Romance > Contemporary > New Adult)
+4. **BISAC codes**: The alphanumeric codes for the chosen categories
+
+Explain WHY each keyword/category was chosen — what search behavior does it target?`,
+      },
+      {
+        label: 'Ad copy generation',
+        skill: 'ad-copy',
+        taskType: 'marketing',
+        promptTemplate: `Create advertising copy for: {{description}}
+
+**Amazon Ads (AMS)**:
+- 3 headline variants (150 chars max each)
+- Focus on genre keywords and emotional hooks
+
+**Facebook/Meta Ads**:
+- 2 primary text variants (short, punchy)
+- 2 headline variants
+- Suggested audience targeting (interests, lookalike authors)
+
+**BookBub Featured Deal**:
+- 1 description (optimal for BookBub's format and audience)
+- Suggested deal price strategy
+
+Each variant should use a different angle: emotion, trope, comp title, question, urgency.`,
+      },
+      {
+        label: 'Social media launch posts',
+        skill: 'blurb-writer',
+        taskType: 'marketing',
+        promptTemplate: `Create social media launch content for: {{description}}
+
+**Instagram/BookStagram** (3 posts):
+- Cover reveal post (caption + hashtags)
+- Launch day post
+- "Why I wrote this book" personal post
+
+**Twitter/X** (5 tweets):
+- Launch announcement
+- Logline tweet
+- Character introduction thread starter
+- Reader comp ("If you loved X, you'll love...")
+- Quote from the book (with formatting)
+
+**TikTok/BookTok** (2 video concepts):
+- Concept + script outline for each
+
+**Email newsletter**:
+- Launch announcement email (subject line + body)
+
+Include relevant hashtags for each platform.`,
+      },
+      {
+        label: 'Launch checklist & timeline',
+        skill: 'format',
+        taskType: 'general',
+        promptTemplate: `Create a book launch checklist and timeline for: {{description}}
+
+**Pre-Launch (4-6 weeks before)**:
+- ARC distribution, cover reveal timing, pre-order setup
+
+**Launch Week**:
+- Day-by-day social media schedule
+- Email sequence
+- Ad activation timeline
+
+**Post-Launch (2-4 weeks after)**:
+- Review solicitation, ad optimization, newsletter follow-up
+
+Include specific actionable items with dates relative to launch day (L-30, L-14, L-7, L-Day, L+7, etc.)`,
+      },
+    ],
+  },
+
+  // ═══════════════════════════════════════════════════════════
+  // Novel Pipeline (kept from V3 — auto-generates 30+ steps)
+  // ═══════════════════════════════════════════════════════════
   {
     type: 'novel-pipeline',
     label: 'Full Novel Pipeline',
     description: 'Write a complete novel from premise to final manuscript — premise, characters, world, outline, chapters, revision, and assembly',
     steps: [], // 30+ steps are auto-generated by createNovelPipeline()
-  },
-  {
-    type: 'writing',
-    label: 'Write a Chapter',
-    description: 'Write a single chapter or scene for your book',
-    steps: [
-      {
-        label: 'Review context',
-        skill: 'manuscript-hub',
-        taskType: 'general',
-        promptTemplate: 'Before writing, review the current state of the project: {{description}}. What has been written so far? What comes next according to the outline? What voice and style should I maintain?',
-      },
-      {
-        label: 'Write the draft',
-        skill: 'write',
-        taskType: 'creative_writing',
-        promptTemplate: '{{description}}\n\nWrite this with vivid prose, strong voice, and attention to pacing. Target 3,000-4,000 words. Show, don\'t tell. Use dialogue to reveal character. End with a hook that pulls the reader forward.',
-      },
-      {
-        label: 'Self-review',
-        skill: 'revise',
-        taskType: 'revision',
-        promptTemplate: 'Review what we just wrote. Check for: voice consistency, pacing, show vs tell, dialogue quality, sensory details, and transitions. Suggest specific improvements but don\'t rewrite unless asked.',
-      },
-    ],
-  },
-  {
-    type: 'revision',
-    label: 'Revision & Editing',
-    description: 'Edit and improve existing manuscript content',
-    steps: [
-      {
-        label: 'Developmental edit',
-        skill: 'revise',
-        taskType: 'revision',
-        promptTemplate: 'Perform a developmental edit on: {{description}}. Analyze: plot structure, character arcs, pacing, tension, thematic coherence, and narrative drive. Provide specific, actionable feedback.',
-      },
-      {
-        label: 'Line edit',
-        skill: 'revise',
-        taskType: 'revision',
-        promptTemplate: 'Perform a line edit on: {{description}}. Focus on: sentence rhythm, word choice, clarity, voice consistency, dialogue tags, and prose quality. Show specific before/after examples.',
-      },
-      {
-        label: 'Consistency check',
-        skill: 'revise',
-        taskType: 'consistency',
-        promptTemplate: 'Check for consistency issues in: {{description}}. Look for: character description changes, timeline errors, setting contradictions, technology/magic rule violations, and naming inconsistencies.',
-      },
-      {
-        label: 'Beta reader simulation',
-        skill: 'beta-reader',
-        taskType: 'revision',
-        promptTemplate: 'Read this as a beta reader: {{description}}. Give honest feedback on: what works well, what confused you, where you got bored, what felt unrealistic, and your overall emotional response. Rate engagement out of 10.',
-      },
-    ],
-  },
-  // ── Deep Revision Pipeline: 13 steps — beta readers + technical analysis + big picture ──
-  {
-    type: 'deep-revision',
-    label: 'Deep Revision Pipeline',
-    description: 'Comprehensive manuscript analysis: 5 beta readers with unique perspectives, technical editing passes, and big-picture story review',
-    steps: [
-      // ── Phase 1: Beta Reader Panel (5 readers, 5 lenses) ──
-      {
-        label: 'Beta Reader #1 — The Casual Reader',
-        skill: 'beta-reader',
-        taskType: 'revision',
-        promptTemplate: `You are a casual reader — you read for fun and entertainment, not to analyze craft. You read one book a week across all genres. You're honest but not mean.
-
-Read this manuscript and give your gut reactions:
-
-**Manuscript**: "{{title}}" — {{description}}
-
-Your feedback should cover:
-- Where did you get hooked? Where did you lose interest or skim?
-- Which characters did you love? Which ones felt flat or annoying?
-- Were there any confusing parts where you had to re-read?
-- Did the ending satisfy you? Did it feel earned?
-- Rate your overall enjoyment: 1-10
-- "Would I recommend this to a friend?" — Yes/No and why
-- The ONE thing you'd change if you could
-
-Be specific — cite chapter numbers and scenes. Don't use craft terminology. React like a real reader.`,
-      },
-      {
-        label: 'Beta Reader #2 — The Genre Expert',
-        skill: 'beta-reader',
-        taskType: 'revision',
-        promptTemplate: `You are a genre expert who has read 500+ books in this genre. You know every trope, convention, and reader expectation. You review for genre-focused book blogs.
-
-Analyze this manuscript through a genre lens:
-
-**Manuscript**: "{{title}}" — {{description}}
-
-Your analysis should cover:
-- Does this deliver on genre promises? What tropes are used well vs poorly?
-- How does the pacing compare to successful books in this genre?
-- Are the genre conventions met or subverted intentionally?
-- Where does this fit in the current market? What comp titles come to mind?
-- What would genre-specific readers love about this? What would frustrate them?
-- Does the opening chapter hook match genre expectations?
-- Rate genre execution: 1-10
-- What 3 things would make this more competitive in the genre?
-
-Be specific with chapter references. Compare to successful published books when relevant.`,
-      },
-      {
-        label: 'Beta Reader #3 — The English Professor',
-        skill: 'beta-reader',
-        taskType: 'revision',
-        promptTemplate: `You are a university literature professor who studies narrative craft. You appreciate both commercial and literary fiction. You've published academic papers on story structure and prose style.
-
-Analyze this manuscript from a literary craft perspective:
-
-**Manuscript**: "{{title}}" — {{description}}
-
-Your analysis should cover:
-- Theme coherence: Is there a clear thematic argument? Is it developed consistently?
-- Symbolism and motifs: Are there recurring images or symbols? Do they work?
-- Narrative structure: Does the structure serve the story? Any structural innovations or problems?
-- Prose quality: Sentence-level craft. Rhythm, imagery, precision of language
-- Character complexity: Are characters psychologically believable? Do they have depth?
-- Point of view: Is the POV choice effective? Any POV violations or inconsistencies?
-- Subtext: Is there enough happening beneath the surface of dialogue and action?
-- Rate literary merit: 1-10
-- Top 3 craft-level improvements that would elevate this manuscript
-
-Cite specific passages and chapters. Use craft terminology but explain your reasoning.`,
-      },
-      {
-        label: 'Beta Reader #4 — The Harsh Critic',
-        skill: 'beta-reader',
-        taskType: 'revision',
-        promptTemplate: `You are a brutally honest book critic. You don't sugarcoat. You've seen every mistake new authors make and you have zero patience for lazy writing. Your reviews are feared but respected because you're always right.
-
-Tear this manuscript apart (constructively):
-
-**Manuscript**: "{{title}}" — {{description}}
-
-Your critique must cover:
-- Plot holes: List every logical inconsistency, unanswered question, and dropped thread
-- Weak motivations: Where do characters do things "because the plot needs them to"?
-- Pacing problems: Where does the story drag? Where does it rush?
-- Dialogue issues: Where does dialogue sound wooden, expository, or all-same-voice?
-- Clichés and lazy writing: Flag every cliché, every "suddenly," every telling-not-showing
-- Opening weakness: Does the first page earn the second page? Be honest.
-- Ending problems: Is the resolution earned or contrived?
-- The single biggest structural problem with this manuscript
-- Top 5 things to fix FIRST (in priority order)
-
-Be specific. Quote bad passages. Don't hold back — but make every criticism actionable.`,
-      },
-      {
-        label: 'Beta Reader #5 — The Target Reader',
-        skill: 'beta-reader',
-        taskType: 'revision',
-        promptTemplate: `You are the ideal target reader for this book. You are the person this was written FOR. You're emotionally invested in finding great books in this genre. You're active on BookTok/Bookstagram and you write passionate reviews.
-
-Read this with your heart, not just your head:
-
-**Manuscript**: "{{title}}" — {{description}}
-
-Your emotional reader response:
-- What was your emotional journey? Map your feelings chapter by chapter
-- Which scenes hit you hardest? Which ones fell flat emotionally?
-- Which character relationship meant the most to you? Why?
-- Was there a moment that made you tear up, gasp, or say "oh no"?
-- Did you feel satisfied at the end? What lingered with you after?
-- Would you pre-order the sequel? Why or why not?
-- What would you say in a 5-star review? What would you say in a 3-star review?
-- Rate emotional impact: 1-10
-- The ONE scene you'd tell your book club about
-- What this book made you FEEL (the most important answer)
-
-Write from the heart. Be genuine. React like a real passionate reader.`,
-      },
-
-      // ── Phase 2: Technical Analysis (5 passes) ──
-      {
-        label: 'Word & Phrase Overuse Report',
-        skill: 'revise',
-        taskType: 'revision',
-        promptTemplate: `Perform a detailed word and phrase overuse analysis on this manuscript:
-
-**Manuscript**: "{{title}}" — {{description}}
-
-Analyze and report on:
-1. **Overused words**: List any words that appear with unusual frequency. Flag: adverbs (suddenly, quickly, softly), weak verbs (was, had, got, went), filler words (just, really, very, quite, actually, basically)
-2. **Crutch phrases**: Repeated phrases or sentence structures the author relies on
-3. **AI-sounding words**: Flag any instances of: delve, tapestry, testament, visceral, juxtaposition, nuanced, multifaceted, intricate, profound, resonate, landscape, paradigm, embark, foster, cornerstone, pivotal, myriad, plethora, beacon, crucible, realm
-4. **Repetitive sentence openers**: Do too many sentences start the same way?
-5. **Dialogue tag variety**: Is "said" overused? Are action beats used effectively?
-6. **Adverb density**: How many adverbs per 1000 words? (target: < 5)
-7. **Passive voice frequency**: How much passive voice? (target: < 10%)
-
-For each issue, provide:
-- The word/phrase
-- Approximate frequency
-- Example from the text
-- Suggested alternatives or fixes
-
-Prioritize by severity. The author should fix the worst offenders first.`,
-      },
-      {
-        label: 'Dialogue Audit',
-        skill: 'revise',
-        taskType: 'revision',
-        promptTemplate: `Perform a comprehensive dialogue audit on this manuscript:
-
-**Manuscript**: "{{title}}" — {{description}}
-
-Analyze every aspect of dialogue quality:
-
-1. **Voice distinctiveness**: Can you tell characters apart by HOW they speak? Rate each major character's voice uniqueness (1-10). Do any characters sound identical?
-2. **Dialogue tags vs action beats**: What's the ratio? Are tags invisible or distracting? Examples of good and bad usage.
-3. **Info-dumping through dialogue**: Flag any "As you know, Bob..." moments where characters explain things they already know
-4. **Subtext quality**: Do characters say what they mean, or is there tension between what's said and what's meant? Best and worst examples
-5. **Dialogue pacing**: Are conversations the right length? Any that go on too long or end too abruptly?
-6. **Character speech patterns**: Note any unique patterns (catchphrases, verbal tics, vocabulary level, sentence length) for each character
-7. **Emotional authenticity**: Does dialogue ring true in emotional scenes? Flag any moments that feel forced
-
-Provide specific examples with chapter/scene references. Suggest rewrites for the worst offenders.`,
-      },
-      {
-        label: 'Show vs Tell Scanner',
-        skill: 'revise',
-        taskType: 'revision',
-        promptTemplate: `Scan this manuscript for show vs tell issues:
-
-**Manuscript**: "{{title}}" — {{description}}
-
-For each instance found:
-
-1. **Emotional telling**: Flag passages that name emotions directly ("She was angry," "He felt sad") instead of showing them through action, body language, or internal sensation
-2. **Character description telling**: "She was beautiful" vs showing beauty through specific details and others' reactions
-3. **Backstory dumps**: Paragraphs of exposition that could be dramatized or woven in naturally
-4. **Motivation telling**: "He wanted revenge" vs showing the desire through behavior
-5. **Atmosphere telling**: "The room was creepy" vs sensory details that create the feeling
-
-For the 10 worst offenders:
-- Quote the original "telling" passage
-- Write a "showing" alternative
-- Explain why the rewrite is stronger
-
-Also note: some telling is FINE. Not everything needs to be shown. Flag the cases where showing would genuinely improve the reader's experience. Don't nitpick functional transitions.`,
-      },
-      {
-        label: 'Pacing Heatmap',
-        skill: 'revise',
-        taskType: 'revision',
-        promptTemplate: `Create a chapter-by-chapter pacing analysis for this manuscript:
-
-**Manuscript**: "{{title}}" — {{description}}
-
-For EACH chapter, provide:
-
-| Chapter | Tension (1-10) | Pacing | Scene Types | Energy | Notes |
-|---------|---------------|--------|-------------|--------|-------|
-
-**Scene type categories**: Action, Dialogue, Reflection, Exposition, Transition, Revelation, Emotional, Romance, Conflict
-
-**Pacing categories**: Too Fast, Fast, Good, Slow, Too Slow, Draggy
-
-**Analysis summary**:
-1. **Overall pacing curve**: Does tension rise properly? Is there a clear three-act structure?
-2. **Energy valleys**: Which chapters are the slowest? Should any be cut or combined?
-3. **Energy peaks**: Are climactic moments properly set up? Do they land?
-4. **Action-to-reflection ratio**: Is there enough breathing room between high-energy scenes?
-5. **Chapter length consistency**: Are any chapters significantly longer/shorter? Does that serve the story?
-6. **Opening momentum**: Do the first 3 chapters build enough momentum to keep a reader going?
-7. **Midpoint assessment**: Is there a compelling midpoint shift?
-8. **Final act pacing**: Does the climax build properly? Is the resolution too rushed or too drawn out?
-
-End with your top 3 pacing fixes, prioritized by impact.`,
-      },
-      {
-        label: 'Continuity & Consistency Check',
-        skill: 'revise',
-        taskType: 'consistency',
-        promptTemplate: `Run a thorough continuity and consistency check across the entire manuscript:
-
-**Manuscript**: "{{title}}" — {{description}}
-
-Check for EVERY type of inconsistency:
-
-1. **Character appearance**: Do physical descriptions stay consistent? (eye color, hair, height, scars, etc.)
-2. **Timeline errors**: Do days, dates, seasons, and time-of-day references add up?
-3. **Setting contradictions**: Do locations stay consistent? (room layouts, geography, distances)
-4. **Character knowledge**: Does any character know something they shouldn't yet?
-5. **Name consistency**: Any spelling variations of character or place names?
-6. **Technology/Magic rules**: Are the rules of the world applied consistently?
-7. **Relationship continuity**: Do character relationships progress logically?
-8. **Dropped threads**: Any plot points, objects, or promises that are set up but never resolved?
-9. **Dead characters**: Does anyone "die" but appear later without explanation?
-10. **Emotional continuity**: Do emotional states carry between scenes logically?
-
-For each issue found:
-- Where it first appears (chapter/scene)
-- Where the contradiction occurs
-- What the discrepancy is
-- Suggested fix
-
-Organize by severity: Critical (breaks the story) → Important (sharp readers will notice) → Minor (copyedit level).`,
-      },
-
-      // ── Phase 3: Big Picture Review (2 steps) ──
-      {
-        label: 'Opening Hook & First Chapter Strength',
-        skill: 'revise',
-        taskType: 'revision',
-        promptTemplate: `Analyze the opening strength of this manuscript with the ruthlessness of a literary agent who reads 100 queries a week:
-
-**Manuscript**: "{{title}}" — {{description}}
-
-**First Page Test** (would an agent keep reading?):
-- Does the first line intrigue?
-- Is there a character with a problem in the first paragraph?
-- Is there forward momentum in the first page?
-- Rate first page: 1-10
-
-**First Chapter Test**:
-- Does it establish voice, character, and stakes?
-- Is the inciting incident clear or hinted at?
-- Does the chapter ending make you NEED to read chapter 2?
-- What questions does it plant in the reader's mind?
-- Rate first chapter: 1-10
-
-**First Three Chapters Test**:
-- By the end of chapter 3, do we understand the protagonist's want, need, and obstacle?
-- Is the genre clear? The tone established?
-- Has the story earned the reader's commitment to finish?
-- Rate first three chapters: 1-10
-
-**Agent's Verdict**: If this crossed your desk:
-- Would you request a full manuscript? Why or why not?
-- What would make you say "yes" immediately?
-- What specific changes would upgrade this from "pass" to "request"?
-
-If the opening is weak, suggest a specific alternative opening scene or first line.`,
-      },
-      {
-        label: 'Final Assessment & Revision Action Plan',
-        skill: 'revise',
-        taskType: 'revision',
-        promptTemplate: `You have now reviewed this manuscript from every angle — as 5 different beta readers, through technical analysis, and from a structural perspective. Synthesize ALL findings into a final actionable revision plan:
-
-**Manuscript**: "{{title}}" — {{description}}
-
-**Synthesis Report**:
-
-1. **Overall Grade**: A through F, with honest justification
-2. **What's Working Brilliantly** (top 3-5 strengths across all reviews):
-   - What should the author KEEP and lean into?
-3. **Critical Fixes** (must-do before publication, ranked by priority):
-   - List the 5-7 most important changes with specific instructions
-4. **Important Improvements** (should-do, will significantly improve quality):
-   - List 5-7 secondary improvements
-5. **Nice-to-Have Polish** (optional refinements for final draft):
-   - List 3-5 minor improvements
-6. **Revision Roadmap** (what order to tackle changes):
-   - Pass 1: [What to fix first and why]
-   - Pass 2: [What to fix second]
-   - Pass 3: [Final polish items]
-7. **Market Readiness Assessment**:
-   - Is this ready for beta readers? For an agent? For self-publishing?
-   - What milestone should the author hit before sending this out?
-8. **Encouraging Close**:
-   - What makes this manuscript special and worth finishing?
-
-This is the author's revision bible. Make it specific, actionable, and honest. Every recommendation should include WHERE in the manuscript it applies and HOW to fix it.`,
-      },
-    ],
-  },
-  {
-    type: 'promotion',
-    label: 'Marketing & Promotion',
-    description: 'Create marketing materials and promotion strategy',
-    steps: [
-      {
-        label: 'Write book blurb',
-        skill: 'blurb-writer',
-        taskType: 'marketing',
-        promptTemplate: 'Write a compelling book blurb for: {{description}}. Create 3 versions: (1) short tagline, (2) back-cover blurb (150 words), (3) Amazon description with HTML formatting. Each should hook the reader and convey genre/tone.',
-      },
-      {
-        label: 'Draft query letter',
-        skill: 'query-letter',
-        taskType: 'marketing',
-        promptTemplate: 'Write a professional query letter for: {{description}}. Include: hook, book summary, comparable titles, author bio placeholder, and word count. Follow industry standard format.',
-      },
-      {
-        label: 'Social media content',
-        skill: 'social-media',
-        taskType: 'marketing',
-        promptTemplate: 'Create a social media content plan for: {{description}}. Include: 5 Twitter/X posts, 3 Instagram captions, 2 TikTok video concepts, and 1 newsletter announcement. Match the book\'s tone and target audience.',
-      },
-      {
-        label: 'Ad copy',
-        skill: 'ad-copy',
-        taskType: 'marketing',
-        promptTemplate: 'Write advertising copy for: {{description}}. Create: 3 Amazon ad headlines, 2 Facebook ad variants, and 1 BookBub featured deal description. Focus on hooks that match the genre expectations.',
-      },
-    ],
-  },
-  {
-    type: 'analysis',
-    label: 'Book Launch Prep',
-    description: 'Prepare everything you need to launch your book',
-    steps: [
-      {
-        label: 'Write book blurb',
-        skill: 'blurb-writer',
-        taskType: 'marketing',
-        promptTemplate: 'Write a compelling book blurb for: {{description}}. Create 3 versions: (1) one-line tagline, (2) back-cover blurb (150 words), (3) Amazon description. Each should hook the reader and convey genre/tone.',
-      },
-      {
-        label: 'Create social media content',
-        skill: 'social-media',
-        taskType: 'marketing',
-        promptTemplate: 'Create launch day social media content for: {{description}}. Include: 3 Twitter/X posts (with hashtags), 2 Instagram captions, and 1 TikTok/BookTok video concept. Match the book\'s tone.',
-      },
-      {
-        label: 'Draft query letter',
-        skill: 'query-letter',
-        taskType: 'marketing',
-        promptTemplate: 'Write a professional query letter for: {{description}}. Include: hook, book summary (250 words), comparable titles, target audience, and word count. Follow industry standard format.',
-      },
-    ],
-  },
-  {
-    type: 'export',
-    label: 'Character Deep Dive',
-    description: 'Create detailed character profiles and relationship maps',
-    steps: [
-      {
-        label: 'Build protagonist',
-        skill: 'book-bible',
-        taskType: 'book_bible',
-        promptTemplate: 'Create a detailed protagonist profile for: {{description}}. Include: full backstory, motivation, fatal flaw, strengths, physical description, speech patterns, key relationships, and character arc from beginning to end.',
-      },
-      {
-        label: 'Build antagonist and supporting cast',
-        skill: 'book-bible',
-        taskType: 'book_bible',
-        promptTemplate: 'Based on the protagonist we created, build the antagonist and 3-4 supporting characters for: {{description}}. Each needs: motivation, backstory, role in the story, relationship to protagonist, and how they challenge or help the hero.',
-      },
-    ],
   },
 ];
 
@@ -1561,53 +1814,160 @@ Description: ${description}`;
       return 'novel-pipeline';
     }
 
-    // Planning signals
-    if (lower.match(/\b(plan|outline|structure|plot|brainstorm|concept|story map|beat sheet|premise|logline)\b/)) {
-      return 'planning';
+    // Pipeline signals — wants the full production chain
+    if (lower.match(/\b(pipeline|full production|end.?to.?end|planning through launch|all phases)\b/)) {
+      return 'pipeline';
     }
 
-    // Research signals
-    if (lower.match(/\b(research|market analysis|comp titles|comparable|audience|genre analysis|investigate)\b/)) {
-      return 'research';
+    // Book Planning signals
+    if (lower.match(/\b(plan|outline|structure|plot|brainstorm|concept|story map|beat sheet|premise|logline|synopsis)\b/)) {
+      return 'book-planning';
     }
 
-    // World building signals
-    if (lower.match(/\b(world.?build|book.?bible|magic system|timeline|backstory|lore)\b/)) {
-      return 'worldbuild';
+    // Book Bible signals
+    if (lower.match(/\b(world.?build|book.?bible|bible|magic system|timeline|backstory|lore|character bible|continuity)\b/)) {
+      return 'book-bible';
     }
 
-    // Writing signals — require book/fiction context words, not just bare "write"
-    if (lower.match(/\b(chapter|scene|prose|manuscript|draft a chapter|write.*chapter|write.*scene)\b/)) {
-      return 'writing';
+    // Book Production signals
+    if (lower.match(/\b(chapter|scene|prose|manuscript|draft|write.*chapter|write.*scene|book production)\b/)) {
+      return 'book-production';
     }
 
     // Deep revision signals — must come before general revision
-    if (lower.match(/\b(deep.?revis|deep.?edit|full.?revision|manuscript.?review|beta.?reader|comprehensive.?edit|revision.?pipeline|deep.?analysis|manuscript.?analysis|manuscript.?audit)\b/)) {
+    if (lower.match(/\b(deep.?revis|deep.?edit|full.?revision|manuscript.?review|beta.?reader|comprehensive.?edit|revision.?pipeline|deep.?analysis|manuscript.?analysis|manuscript.?audit|edit.*book|revise|rewrite|feedback|critique|proofread|consistency)\b/)) {
       return 'deep-revision';
     }
 
-    // Revision signals
-    if (lower.match(/\b(edit|revise|rewrite|feedback|critique|proofread|consistency|beta read)\b/)) {
-      return 'revision';
+    // Format & Export signals
+    if (lower.match(/\b(export|format|compile|epub|pdf|docx|publish|kdp|kindle|front matter|back matter)\b/)) {
+      return 'format-export';
     }
 
-    // Promotion signals
-    if (lower.match(/\b(promote|blurb|query letter|social media|ad copy|advertise)\b/)) {
-      return 'promotion';
-    }
-
-    // Analysis signals
-    if (lower.match(/\b(style analysis|voice analysis|analyz.*style|tone|match my|clone.*voice)\b/)) {
-      return 'analysis';
-    }
-
-    // Export signals
-    if (lower.match(/\b(export|format|compile|epub|pdf|docx|publish)\b/)) {
-      return 'export';
+    // Book Launch signals
+    if (lower.match(/\b(launch|blurb|amazon desc|keywords|ad copy|advertise|promote|market|social media|book description|categories)\b/)) {
+      return 'book-launch';
     }
 
     // Default: let the AI planner figure out the best approach
     return 'custom';
+  }
+
+  /**
+   * Create a full pipeline: chains all 6 project phases from a single idea.
+   * Each phase is a separate sub-project linked by pipelineId.
+   */
+  createPipeline(
+    title: string,
+    description: string,
+    personaId?: string,
+    config?: NovelPipelineConfig
+  ): { pipelineId: string; projects: Project[] } {
+    const pipelineId = `pipeline-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+    const phases: Array<{ type: ProjectType; label: string; phaseNum: number }> = [
+      { type: 'book-planning', label: `${title} — Planning`, phaseNum: 1 },
+      { type: 'book-bible', label: `${title} — Book Bible`, phaseNum: 2 },
+      { type: 'book-production', label: `${title} — Production`, phaseNum: 3 },
+      { type: 'deep-revision', label: `${title} — Deep Revision`, phaseNum: 4 },
+      { type: 'format-export', label: `${title} — Format & Export`, phaseNum: 5 },
+      { type: 'book-launch', label: `${title} — Book Launch`, phaseNum: 6 },
+    ];
+
+    const projects: Project[] = [];
+    for (const phase of phases) {
+      let project: Project;
+      if (phase.type === 'book-production') {
+        // Book production uses the novel pipeline chapter-writing logic
+        project = this.createBookProduction(phase.label, description, config);
+      } else {
+        project = this.createProject(phase.type, phase.label, description, { pipelineTitle: title, ...config });
+      }
+      project.pipelineId = pipelineId;
+      project.pipelinePhase = phase.phaseNum;
+      if (personaId) project.personaId = personaId;
+      projects.push(project);
+    }
+
+    // Only the first phase starts as pending-ready; others wait
+    // (Pipeline advancement is managed by the dashboard/API)
+    this.persistState();
+    return { pipelineId, projects };
+  }
+
+  /**
+   * Create a Book Production project with dynamic chapter steps.
+   */
+  createBookProduction(title: string, description: string, config: NovelPipelineConfig = {}): Project {
+    const id = `project-${this.nextId++}`;
+    const now = new Date().toISOString();
+    const chapters = Math.min(Math.max(config.targetChapters || 25, 1), 200);
+    const wordsPerChapter = Math.max(config.targetWordsPerChapter || 3000, 100);
+
+    const steps: ProjectStep[] = [];
+    for (let ch = 1; ch <= chapters; ch++) {
+      steps.push({
+        id: `${id}-step-${ch * 2 - 1}`,
+        label: `Write Chapter ${ch}`,
+        phase: 'writing',
+        skill: 'write',
+        taskType: 'creative_writing',
+        prompt: `Write Chapter ${ch} of "${title}".\n\nInstructions:\n- Follow the outline beats and book bible for this chapter\n- You MUST write at least ${wordsPerChapter} words of actual prose narrative\n- Open with a hook — no throat-clearing\n- End with a reason to turn the page\n- Include sensory details and internal tension\n- Write the COMPLETE chapter as actual prose, not a summary\n\n${description}`,
+        status: 'pending',
+        wordCountTarget: wordsPerChapter,
+        chapterNumber: ch,
+      });
+      steps.push({
+        id: `${id}-step-${ch * 2}`,
+        label: `Self-review Chapter ${ch}`,
+        phase: 'writing',
+        skill: 'revise',
+        taskType: 'revision',
+        prompt: `Review Chapter ${ch} we just wrote. Check for: voice consistency, pacing, show vs tell, dialogue quality, sensory details, word count target (${wordsPerChapter}+). Suggest improvements but focus on completing the chapter, not perfection.`,
+        status: 'pending',
+        chapterNumber: ch,
+      });
+    }
+
+    // Assembly step
+    steps.push({
+      id: `${id}-step-${chapters * 2 + 1}`,
+      label: 'Compile manuscript',
+      phase: 'assembly',
+      taskType: 'general',
+      prompt: `Generate a completion report for "${title}". Total chapters: ${chapters}. Target: ~${(chapters * wordsPerChapter).toLocaleString()} words. Assess strengths, areas for improvement, and next steps.`,
+      status: 'pending',
+    });
+
+    const project: Project = {
+      id,
+      type: 'book-production',
+      title,
+      description,
+      status: 'pending',
+      progress: 0,
+      steps,
+      createdAt: now,
+      updatedAt: now,
+      context: {
+        targetChapters: chapters,
+        targetWordsPerChapter: wordsPerChapter,
+        estimatedTotalWords: chapters * wordsPerChapter,
+        ...config,
+      },
+    };
+
+    this.projects.set(id, project);
+    this.persistState();
+    return project;
+  }
+
+  /**
+   * Get all projects belonging to a pipeline.
+   */
+  getPipelineProjects(pipelineId: string): Project[] {
+    return Array.from(this.projects.values())
+      .filter(p => p.pipelineId === pipelineId)
+      .sort((a, b) => (a.pipelinePhase || 0) - (b.pipelinePhase || 0));
   }
 
   // ── Core Lessons (self-improvement feedback loop) ──
@@ -1662,16 +2022,14 @@ Description: ${description}`;
   private inferTaskType(description: string): string {
     const type = this.inferProjectType(description);
     const taskMap: Record<ProjectType, string> = {
-      planning: 'outline',
-      research: 'research',
-      worldbuild: 'book_bible',
-      writing: 'creative_writing',
-      revision: 'revision',
+      'book-planning': 'outline',
+      'book-bible': 'book_bible',
+      'book-production': 'creative_writing',
       'deep-revision': 'revision',
-      promotion: 'marketing',
-      analysis: 'style_analysis',
-      export: 'general',
+      'format-export': 'general',
+      'book-launch': 'marketing',
       'novel-pipeline': 'creative_writing',
+      pipeline: 'general',
       custom: 'general',
     };
     return taskMap[type] || 'general';
