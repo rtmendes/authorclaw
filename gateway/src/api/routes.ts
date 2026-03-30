@@ -1744,6 +1744,76 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
   });
 
   // ═══════════════════════════════════════════════════════════
+  // Context Engine & Continuity Checker
+  // ═══════════════════════════════════════════════════════════
+
+  // Get project context (summaries + entities)
+  app.get('/api/projects/:id/context', async (req: Request, res: Response) => {
+    try {
+      const engine = gateway.getProjectEngine?.();
+      if (!engine) return res.status(503).json({ error: 'Not initialized' });
+      const project = engine.getProject(req.params.id);
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+
+      const contextEngine = services.contextEngine;
+      if (!contextEngine) return res.json({ summaries: [], entities: [] });
+
+      const ctx = await contextEngine.loadContext(req.params.id);
+      res.json({ summaries: ctx.summaries, entities: ctx.entities });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // Run continuity check (async — responds immediately, emits progress via socket)
+  app.post('/api/projects/:id/continuity-check', async (req: Request, res: Response) => {
+    try {
+      const engine = gateway.getProjectEngine?.();
+      if (!engine) return res.status(503).json({ error: 'Not initialized' });
+      const project = engine.getProject(req.params.id);
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+
+      const contextEngine = services.contextEngine;
+      if (!contextEngine) return res.status(503).json({ error: 'Context engine not available' });
+
+      const aiCompleteFn = (request: any) => services.aiRouter.complete(request);
+      const aiSelectFn = (taskType: string) => services.aiRouter.selectProvider(taskType);
+
+      // Run asynchronously, respond immediately
+      res.json({ status: 'started', projectId: req.params.id });
+
+      contextEngine.runContinuityCheck(
+        req.params.id,
+        aiCompleteFn,
+        aiSelectFn,
+        (msg: string) => {
+          // Emit progress via socket if available
+          try { (gateway as any).io?.emit?.('continuity-progress', { projectId: req.params.id, message: msg }); } catch {}
+        }
+      ).then((report: any) => {
+        try { (gateway as any).io?.emit?.('continuity-complete', { projectId: req.params.id, report }); } catch {}
+      }).catch((err: any) => {
+        try { (gateway as any).io?.emit?.('continuity-error', { projectId: req.params.id, error: err.message }); } catch {}
+      });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // Get stored continuity report
+  app.get('/api/projects/:id/continuity-report', async (req: Request, res: Response) => {
+    try {
+      const contextEngine = services.contextEngine;
+      if (!contextEngine) return res.json({ report: null });
+
+      const report = contextEngine.getReport(req.params.id);
+      res.json({ report });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════
   // Autonomous Heartbeat Mode
   // ═══════════════════════════════════════════════════════════
 

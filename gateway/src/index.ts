@@ -38,6 +38,7 @@ import { TTSService } from './services/tts.js';
 import { ImageGenService } from './services/image-gen.js';
 import { ProjectEngine } from './services/projects.js';
 import { PersonaService } from './services/personas.js';
+import { ContextEngine } from './services/context-engine.js';
 import { TelegramBridge } from './bridges/telegram.js';
 import { DiscordBridge } from './bridges/discord.js';
 import { createAPIRoutes } from './api/routes.js';
@@ -81,6 +82,7 @@ class AuthorClawGateway {
   private imageGen!: ImageGenService;
   private personas!: PersonaService;
   private projectEngine!: ProjectEngine;
+  private contextEngine!: ContextEngine;
   private telegram?: TelegramBridge;
   private discord?: DiscordBridge;
 
@@ -262,6 +264,11 @@ class AuthorClawGateway {
     );
     const templates = this.projectEngine.getTemplates();
     console.log(`  ✓ Project engine: ${templates.length} templates + dynamic AI planning`);
+
+    // ── Phase 6f: Context Engine ──
+    this.contextEngine = new ContextEngine(join(ROOT_DIR, 'workspace'));
+    this.projectEngine.setContextEngine(this.contextEngine);
+    console.log('  ✓ Context Engine: manuscript memory + continuity checking');
 
     // ── Phase 7: Heartbeat ──
     this.heartbeat = new HeartbeatService(this.config.get('heartbeat'), this.memory);
@@ -973,6 +980,7 @@ class AuthorClawGateway {
       authorOS: this.authorOS,
       tts: this.tts,
       personas: this.personas,
+      contextEngine: this.contextEngine,
     };
   }
 
@@ -1033,6 +1041,7 @@ class AuthorClawGateway {
           '`/project [task]` — Create any project (AI plans the steps)',
           '`/write [idea]` — Quick writing task',
           '`/projects` — List all projects with status',
+          '`/continuity` — Run continuity check on active/completed project',
           '`/status` — Check what\'s running',
           '`/stop` — Pause active project',
           '`continue` — Resume paused project',
@@ -1097,6 +1106,41 @@ class AuthorClawGateway {
           return `${status} **${p.title}** — ${p.progress}% (${p.steps.filter((s: any) => s.status === 'completed').length}/${p.steps.length} steps)`;
         });
         return `**Projects (${projects.length}):**\n\n${lines.join('\n')}`;
+      }
+
+      case '/continuity': {
+        const contProjects = this.projectEngine.listProjects();
+        const target = contProjects.find((p: any) => p.status === 'completed' || p.status === 'active');
+        if (!target) return 'No projects available for continuity check. Create and run a project first.';
+
+        const aiCompleteFn = (req: any) => this.aiRouter.complete(req);
+        const aiSelectFn = (taskType: string) => this.aiRouter.selectProvider(taskType);
+
+        try {
+          const report = await this.contextEngine.runContinuityCheck(
+            target.id,
+            aiCompleteFn,
+            aiSelectFn,
+          );
+          let summary = `✅ **Continuity Check Complete**\n\n`;
+          summary += `Found **${report.totalIssues}** issue(s):\n`;
+          for (const [cat, count] of Object.entries(report.issuesByCategory)) {
+            if (count > 0) summary += `- ${cat}: ${count}\n`;
+          }
+          if (report.issues.length > 0) {
+            summary += '\n**Top Issues:**\n';
+            report.issues.slice(0, 10).forEach((issue, i) => {
+              const icon = issue.severity === 'error' ? '🔴' : issue.severity === 'warning' ? '🟡' : 'ℹ️';
+              summary += `${i + 1}. ${icon} ${issue.description}\n`;
+            });
+            if (report.issues.length > 10) {
+              summary += `\n...and ${report.issues.length - 10} more. View full report in the project detail.`;
+            }
+          }
+          return summary;
+        } catch (err) {
+          return '❌ Continuity check failed: ' + String(err);
+        }
       }
 
       case '/status': {
@@ -1629,6 +1673,40 @@ class AuthorClawGateway {
 
         // Complete the step and advance
         const nextStep = gateway.projectEngine.completeStep(projectId, activeStep.id, aiResponse);
+
+        // After completeStep — generate context for writing and bible steps
+        try {
+          const stepLabel = (activeStep as any).label || '';
+          const isWritingStep = stepLabel.toLowerCase().includes('chapter') ||
+            stepLabel.toLowerCase().includes('write') ||
+            (activeStep as any).phase === 'writing';
+          const isBibleStep = project.type === 'book-bible' ||
+            stepLabel.toLowerCase().includes('bible') ||
+            stepLabel.toLowerCase().includes('character') ||
+            stepLabel.toLowerCase().includes('world');
+
+          if ((isWritingStep || isBibleStep) && aiResponse.length > 200) {
+            const chapterNum = project.steps.filter((s: any) =>
+              s.status === 'completed' && s.id !== activeStep.id
+            ).length + 1;
+
+            const aiCompleteFn = (req: any) => gateway.aiRouter.complete(req);
+            const aiSelectFn = (taskType: string) => gateway.aiRouter.selectProvider(taskType);
+
+            // Fire and forget — don't block step completion
+            gateway.contextEngine.generateSummary(
+              projectId, activeStep.id, stepLabel, chapterNum, aiResponse,
+              aiCompleteFn, aiSelectFn
+            ).catch(err => console.error('[context-engine] Summary error:', err.message));
+
+            gateway.contextEngine.extractEntities(
+              projectId, activeStep.id, aiResponse,
+              aiCompleteFn, aiSelectFn
+            ).catch(err => console.error('[context-engine] Entity extraction error:', err.message));
+          }
+        } catch (contextErr) {
+          console.error('[context-engine] Hook error:', contextErr);
+        }
 
         // Track words for Morning Briefing
         gateway.heartbeat.addWords(wordCount);

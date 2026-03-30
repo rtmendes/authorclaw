@@ -1771,9 +1771,25 @@ function openProjectDetail(id) {
         '<div class="progress-bar" style="margin-bottom:12px;"><div class="progress-fill" style="width:' + (project.progress || 0) + '%">' + (project.progress || 0) + '%</div></div>' +
         '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">' + actionsHtml + '</div>' +
       '</div>' +
-      '<div class="card">' +
+      '<div style="display:flex;gap:0;margin-bottom:0;border-bottom:2px solid var(--border);">' +
+        '<button class="pd-tab active" data-tab="steps" style="padding:10px 20px;background:none;border:none;color:var(--text);font-weight:700;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-2px;font-size:13px;">Steps</button>' +
+        '<button class="pd-tab" data-tab="context" style="padding:10px 20px;background:none;border:none;color:var(--muted);font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;font-size:13px;">Context</button>' +
+        '<button class="pd-tab" data-tab="continuity" style="padding:10px 20px;background:none;border:none;color:var(--muted);font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;font-size:13px;">Continuity</button>' +
+      '</div>' +
+      '<div class="card pd-tab-content" id="pdTabSteps">' +
         '<div class="card-title">Steps</div>' +
         '<div class="step-list">' + stepsHtml + '</div>' +
+      '</div>' +
+      '<div class="card pd-tab-content" id="pdTabContext" style="display:none;">' +
+        '<div class="card-title">Story Context</div>' +
+        '<div id="pdContextContent" style="color:var(--muted);font-size:13px;">Loading...</div>' +
+      '</div>' +
+      '<div class="card pd-tab-content" id="pdTabContinuity" style="display:none;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
+          '<div class="card-title" style="margin-bottom:0;">Continuity Report</div>' +
+          '<button class="success" id="pdRunContinuity" style="font-size:12px;padding:6px 14px;">Run Check</button>' +
+        '</div>' +
+        '<div id="pdContinuityContent" style="color:var(--muted);font-size:13px;">No report yet. Click "Run Check" to scan for inconsistencies.</div>' +
       '</div>' +
       '<div class="card" id="pdFilePanel">' +
         '<div class="card-title">Project Files</div>' +
@@ -1848,6 +1864,71 @@ function openProjectDetail(id) {
       if (out) out.classList.toggle('open');
     });
   });
+
+  // Wire tabs
+  detail.querySelectorAll('.pd-tab').forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      detail.querySelectorAll('.pd-tab').forEach(function(t) {
+        t.style.color = 'var(--muted)';
+        t.style.borderBottomColor = 'transparent';
+        t.style.fontWeight = '600';
+      });
+      tab.style.color = 'var(--text)';
+      tab.style.borderBottomColor = 'var(--accent)';
+      tab.style.fontWeight = '700';
+
+      var tabName = tab.getAttribute('data-tab');
+      detail.querySelectorAll('.pd-tab-content').forEach(function(c) { c.style.display = 'none'; });
+      var target = detail.querySelector('#pdTab' + tabName.charAt(0).toUpperCase() + tabName.slice(1));
+      if (target) target.style.display = 'block';
+
+      // Lazy load data
+      if (tabName === 'context' && !detail._contextLoaded) {
+        detail._contextLoaded = true;
+        loadProjectContext(id);
+      }
+      if (tabName === 'continuity' && !detail._continuityLoaded) {
+        detail._continuityLoaded = true;
+        loadContinuityReport(id);
+      }
+    });
+  });
+
+  // Wire continuity run button
+  var pdRunCont = detail.querySelector('#pdRunContinuity');
+  if (pdRunCont) {
+    pdRunCont.addEventListener('click', function() {
+      pdRunCont.disabled = true;
+      pdRunCont.textContent = 'Running...';
+      showToast('Continuity check started...', 'info');
+      api('POST', '/api/projects/' + id + '/continuity-check').then(function() {
+        // Poll for completion
+        var pollCount = 0;
+        var pollId = setInterval(function() {
+          pollCount++;
+          api('GET', '/api/projects/' + id + '/continuity-report').then(function(data) {
+            if (data.report) {
+              clearInterval(pollId);
+              pdRunCont.disabled = false;
+              pdRunCont.textContent = 'Run Check';
+              renderContinuityReport(data.report);
+              showToast('Continuity check complete! Found ' + data.report.totalIssues + ' issue(s).', 'success');
+            }
+          });
+          if (pollCount > 60) { // 5 minutes max
+            clearInterval(pollId);
+            pdRunCont.disabled = false;
+            pdRunCont.textContent = 'Run Check';
+            showToast('Continuity check timed out. Check again later.', 'error');
+          }
+        }, 5000);
+      }).catch(function(e) {
+        pdRunCont.disabled = false;
+        pdRunCont.textContent = 'Run Check';
+        showToast('Failed: ' + e.message, 'error');
+      });
+    });
+  }
 
   // Load files
   loadProjectFiles(id);
@@ -1935,6 +2016,125 @@ function compileProject(id) {
       showToast(data.error || 'Compile failed', 'error');
     }
   }).catch(function(e) { showToast('Compile failed: ' + e.message, 'error'); });
+}
+
+// ================================================================
+// CONTEXT & CONTINUITY
+// ================================================================
+
+function loadProjectContext(projectId) {
+  var el = document.getElementById('pdContextContent');
+  if (!el) return;
+  api('GET', '/api/projects/' + projectId + '/context').then(function(data) {
+    if ((!data.summaries || data.summaries.length === 0) && (!data.entities || data.entities.length === 0)) {
+      el.innerHTML = '<span style="color:var(--muted);">No context data yet. Context is built automatically as project steps complete.</span>';
+      return;
+    }
+    var html = '';
+
+    // Chapter summaries
+    if (data.summaries && data.summaries.length > 0) {
+      html += '<h4 style="font-size:14px;margin-bottom:10px;color:var(--text);">Chapter Summaries (' + data.summaries.length + ')</h4>';
+      data.summaries.forEach(function(s) {
+        html += '<div style="margin-bottom:12px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;">' +
+          '<div style="font-weight:700;font-size:13px;margin-bottom:4px;">' + esc(s.title || ('Chapter ' + s.chapterNumber)) + '</div>' +
+          '<div style="font-size:12px;color:var(--muted);margin-bottom:6px;">' +
+            (s.timelineMarker ? '\ud83d\udd50 ' + esc(s.timelineMarker) + ' \u00b7 ' : '') +
+            (s.characters ? s.characters.length + ' characters \u00b7 ' : '') +
+            (s.locations ? s.locations.length + ' locations' : '') +
+          '</div>' +
+          '<div style="font-size:12px;line-height:1.5;">' + esc(s.summary || '').substring(0, 300) + (s.summary && s.summary.length > 300 ? '...' : '') + '</div>' +
+        '</div>';
+      });
+    }
+
+    // Entity index
+    if (data.entities && data.entities.length > 0) {
+      html += '<h4 style="font-size:14px;margin:16px 0 10px;color:var(--text);">Entity Index (' + data.entities.length + ')</h4>';
+      var byType = {};
+      data.entities.forEach(function(e) {
+        if (!byType[e.type]) byType[e.type] = [];
+        byType[e.type].push(e);
+      });
+      var typeIcons = { character: '\ud83d\udc64', location: '\ud83d\udccd', item: '\ud83d\udd2e', event: '\ud83d\udcc5', rule: '\ud83d\udcdc' };
+      Object.keys(byType).forEach(function(type) {
+        html += '<div style="margin-bottom:10px;">' +
+          '<div style="font-weight:600;font-size:12px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">' + (typeIcons[type] || '\u2022') + ' ' + esc(type) + 's (' + byType[type].length + ')</div>';
+        byType[type].forEach(function(e) {
+          var attrs = e.attributes ? Object.entries(e.attributes).map(function(kv) { return esc(kv[0]) + ': ' + esc(kv[1]); }).join(', ') : '';
+          html += '<div style="padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;margin-bottom:4px;font-size:12px;">' +
+            '<strong>' + esc(e.name) + '</strong>' +
+            (e.aliases && e.aliases.length ? ' <span style="color:var(--muted);">(' + e.aliases.map(esc).join(', ') + ')</span>' : '') +
+            (e.description ? ' \u2014 ' + esc(e.description).substring(0, 150) : '') +
+            (attrs ? '<div style="color:var(--muted);margin-top:2px;">' + attrs + '</div>' : '') +
+            (e.changes && e.changes.length ? '<div style="color:var(--warning);margin-top:2px;font-size:11px;">\u26a0 ' + e.changes.length + ' change(s) tracked</div>' : '') +
+          '</div>';
+        });
+        html += '</div>';
+      });
+    }
+
+    el.innerHTML = html;
+  }).catch(function(err) {
+    el.innerHTML = '<span style="color:var(--danger);">Failed to load context: ' + esc(err.message) + '</span>';
+  });
+}
+
+function loadContinuityReport(projectId) {
+  api('GET', '/api/projects/' + projectId + '/continuity-report').then(function(data) {
+    if (data.report) renderContinuityReport(data.report);
+  });
+}
+
+function renderContinuityReport(report) {
+  var el = document.getElementById('pdContinuityContent');
+  if (!el || !report) return;
+
+  if (report.totalIssues === 0) {
+    el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--success);"><div style="font-size:32px;margin-bottom:8px;">\u2705</div><strong>No issues found!</strong><br><span style="font-size:12px;color:var(--muted);">Your manuscript looks consistent.</span></div>';
+    return;
+  }
+
+  var html = '';
+  // Summary bar
+  var errors = report.issues.filter(function(i) { return i.severity === 'error'; }).length;
+  var warnings = report.issues.filter(function(i) { return i.severity === 'warning'; }).length;
+  var infos = report.issues.filter(function(i) { return i.severity === 'info'; }).length;
+
+  html += '<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">';
+  if (errors) html += '<div style="padding:8px 14px;background:rgba(231,76,60,0.15);border-radius:6px;font-size:13px;font-weight:600;">\ud83d\udd34 ' + errors + ' Error' + (errors > 1 ? 's' : '') + '</div>';
+  if (warnings) html += '<div style="padding:8px 14px;background:rgba(241,196,15,0.15);border-radius:6px;font-size:13px;font-weight:600;">\ud83d\udfe1 ' + warnings + ' Warning' + (warnings > 1 ? 's' : '') + '</div>';
+  if (infos) html += '<div style="padding:8px 14px;background:rgba(52,152,219,0.15);border-radius:6px;font-size:13px;font-weight:600;">\u2139\ufe0f ' + infos + ' Info</div>';
+  html += '</div>';
+
+  // Issues grouped by category
+  var categories = {};
+  report.issues.forEach(function(issue) {
+    if (!categories[issue.category]) categories[issue.category] = [];
+    categories[issue.category].push(issue);
+  });
+
+  var catLabels = { character: '\ud83d\udc64 Character', timeline: '\ud83d\udd50 Timeline', setting: '\ud83d\udccd Setting', naming: '\ud83d\udcdd Naming', plot_thread: '\ud83e\uddf5 Plot Thread' };
+
+  Object.keys(categories).forEach(function(cat) {
+    html += '<div style="margin-bottom:16px;">' +
+      '<div style="font-weight:700;font-size:13px;margin-bottom:8px;">' + (catLabels[cat] || esc(cat)) + ' (' + categories[cat].length + ')</div>';
+
+    categories[cat].forEach(function(issue) {
+      var severityColor = issue.severity === 'error' ? 'var(--danger)' : issue.severity === 'warning' ? '#f1c40f' : 'var(--muted)';
+      html += '<div style="padding:10px;background:var(--bg);border-left:3px solid ' + severityColor + ';border-radius:4px;margin-bottom:6px;font-size:12px;">' +
+        '<div style="font-weight:600;margin-bottom:4px;">' + esc(issue.description) + '</div>' +
+        (issue.chapters && issue.chapters.length ? '<div style="color:var(--muted);margin-bottom:4px;">Chapters: ' + issue.chapters.map(esc).join(', ') + '</div>' : '') +
+        (issue.evidence && issue.evidence.length ? '<div style="font-style:italic;color:var(--muted);margin-bottom:4px;">"' + issue.evidence.map(esc).join('" vs "') + '"</div>' : '') +
+        (issue.suggestion ? '<div style="color:var(--success);">\ud83d\udca1 ' + esc(issue.suggestion) + '</div>' : '') +
+      '</div>';
+    });
+    html += '</div>';
+  });
+
+  html += '<div style="font-size:11px;color:var(--muted);margin-top:12px;">Generated: ' + esc(report.generatedAt || '') + '</div>';
+
+  el.innerHTML = html;
 }
 
 // ================================================================

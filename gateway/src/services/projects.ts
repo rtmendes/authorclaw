@@ -14,6 +14,7 @@
  */
 
 import { AuthorOSService } from './author-os.js';
+import { ContextEngine } from './context-engine.js';
 import type { SkillCatalogEntry } from '../skills/loader.js';
 import { readFile } from 'fs/promises';
 import { existsSync, readFileSync } from 'fs';
@@ -981,6 +982,7 @@ export class ProjectEngine {
   private nextId = 1;
   private aiComplete: AICompleteFunc | null = null;
   private aiSelectProvider: AISelectProviderFunc | null = null;
+  private contextEngine?: ContextEngine;
   private coreLessonsCache: string | null = null;
   private coreLessonsCacheTime = 0;
   private stateFilePath: string;
@@ -1050,6 +1052,10 @@ export class ProjectEngine {
   setAI(complete: AICompleteFunc, selectProvider: AISelectProviderFunc): void {
     this.aiComplete = complete;
     this.aiSelectProvider = selectProvider;
+  }
+
+  setContextEngine(engine: ContextEngine): void {
+    this.contextEngine = engine;
   }
 
   // ── Novel Pipeline ──
@@ -1753,15 +1759,22 @@ Description: ${description}`;
         if (outlineResults.length > 0) {
           context += `## Outline\n\n${truncate(outlineResults.map(s => s.result).join('\n\n'), 4000)}\n\n`;
         }
-        // Sliding window: last 2 completed chapter results
-        const writtenChapters = getPhaseResults('writing');
-        if (writtenChapters.length > 0) {
-          const recent = writtenChapters.slice(-2);
-          context += `## Recent Chapters (for continuity)\n\n`;
-          for (const ch of recent) {
-            context += `### ${ch.label}\n${truncate(ch.result!, 2000)}\n\n`;
+        // Try ContextEngine first for smarter context
+        const engineContext = this.contextEngine?.getRelevantContext(project.id, step.id, step.prompt || '', 12000);
+        if (engineContext && engineContext.length > 100) {
+          context += engineContext + '\n\n';
+        } else {
+          // Fall back to existing sliding window behavior
+          // Sliding window: last 2 completed chapter results
+          const writtenChapters = getPhaseResults('writing');
+          if (writtenChapters.length > 0) {
+            const recent = writtenChapters.slice(-2);
+            context += `## Recent Chapters (for continuity)\n\n`;
+            for (const ch of recent) {
+              context += `### ${ch.label}\n${truncate(ch.result!, 2000)}\n\n`;
+            }
           }
-        }
+        }  // end fallback
         break;
       }
 
