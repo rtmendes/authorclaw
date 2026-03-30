@@ -898,6 +898,14 @@ textarea { resize: vertical; min-height: 60px; }
         <button id="btnSaveDomains">Save Domains</button>
       </div>
 
+      <!-- Backups -->
+      <div class="card">
+        <div class="card-title">Backups</div>
+        <p class="hint" style="margin-bottom:8px;">Create and restore workspace backups. Includes projects, personas, memory, and settings.</p>
+        <button id="btnCreateBackup" class="success" style="margin-bottom:12px;">Create Backup</button>
+        <div id="backupList" style="margin-top:8px;"></div>
+      </div>
+
       <!-- Autonomous Mode -->
       <div class="card">
         <div class="card-title">Autonomous Mode</div>
@@ -1076,6 +1084,7 @@ function switchPanel(name) {
     loadTelegramStatus();
     loadVoices();
     loadIdleTasks();
+    loadBackups();
   } else if (name === 'home') {
     loadProjects();
     loadHomeStats();
@@ -2394,6 +2403,78 @@ document.getElementById('btnSaveDomains').addEventListener('click', function() {
     showToast('Research domains saved! (' + (data.count || domains.length) + ' domains)', 'success');
     loadResearchDomains();
   }).catch(function(e) { showToast('Failed: ' + e.message, 'error'); });
+});
+
+// ── Backups ──
+function loadBackups() {
+  var el = document.getElementById('backupList');
+  if (!el) return;
+  el.innerHTML = '<span style="color:var(--muted);font-size:13px;">Loading backups...</span>';
+  api('GET', '/api/backup/list').then(function(data) {
+    var backups = data.backups || [];
+    if (backups.length === 0) {
+      el.innerHTML = '<span style="color:var(--muted);font-size:13px;">No backups yet.</span>';
+      return;
+    }
+    var html = '';
+    backups.forEach(function(b) {
+      var date = new Date(b.createdAt);
+      var dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);">' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="font-size:13px;font-weight:600;">' + esc(b.id) + '</div>' +
+          '<div style="font-size:12px;color:var(--muted);">' + esc(dateStr) + ' &middot; ' + esc(String(b.sizeKB)) + ' KB</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;flex-shrink:0;">' +
+          '<button class="secondary btn-restore-backup" data-id="' + esc(b.id) + '" style="font-size:12px;padding:4px 10px;">Restore</button>' +
+          '<button class="danger btn-delete-backup" data-id="' + esc(b.id) + '" style="font-size:12px;padding:4px 10px;">Delete</button>' +
+        '</div>' +
+      '</div>';
+    });
+    el.innerHTML = html;
+
+    el.querySelectorAll('.btn-restore-backup').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var id = btn.getAttribute('data-id');
+        if (!confirm('Restore from backup "' + id + '"?\n\nA safety backup of your current state will be created first.')) return;
+        showToast('Restoring from ' + id + '...', 'info');
+        api('POST', '/api/backup/restore/' + encodeURIComponent(id)).then(function(data) {
+          showToast('Restored from ' + esc(data.restoredFrom) + '. Safety backup: ' + esc(data.safetyBackup), 'success');
+          loadBackups();
+        }).catch(function(e) { showToast('Restore failed: ' + e.message, 'error'); });
+      });
+    });
+
+    el.querySelectorAll('.btn-delete-backup').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var id = btn.getAttribute('data-id');
+        if (!confirm('Delete backup "' + id + '"? This cannot be undone.')) return;
+        api('DELETE', '/api/backup/' + encodeURIComponent(id)).then(function() {
+          showToast('Backup deleted', 'info');
+          loadBackups();
+        }).catch(function(e) { showToast('Delete failed: ' + e.message, 'error'); });
+      });
+    });
+  }).catch(function(e) {
+    el.innerHTML = '<span style="color:var(--error);font-size:13px;">Failed to load backups</span>';
+  });
+}
+
+document.getElementById('btnCreateBackup').addEventListener('click', function() {
+  var btn = document.getElementById('btnCreateBackup');
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+  showToast('Creating backup...', 'info');
+  api('POST', '/api/backup/create').then(function(data) {
+    showToast('Backup created: ' + esc(data.backupId) + ' (' + (data.sizeKB || 0) + ' KB)', 'success');
+    btn.disabled = false;
+    btn.textContent = 'Create Backup';
+    loadBackups();
+  }).catch(function(e) {
+    showToast('Backup failed: ' + e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Create Backup';
+  });
 });
 
 // ── Autonomous Mode ──

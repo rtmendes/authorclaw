@@ -64,9 +64,9 @@ RUN mkdir -p /app/workspace/memory/conversations \
 # Security: Drop to non-root user
 USER authorclaw
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://localhost:3847/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+# Health check — liveness probe (proves process is running and accepting HTTP)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD node -e "fetch('http://localhost:3847/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 EXPOSE 3847
 

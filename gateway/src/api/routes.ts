@@ -9,8 +9,17 @@
 
 import { Application, Request, Response } from 'express';
 import multer from 'multer';
+import path from 'path';
 import { generateDocxBuffer } from '../services/docx-export.js';
 import { generateEpubBuffer } from '../services/epub-export.js';
+
+/** Verify resolved path stays within the allowed base directory */
+function safePath(base: string, userInput: string): string | null {
+  const resolved = path.resolve(base, userInput);
+  const resolvedBase = path.resolve(base);
+  if (!resolved.startsWith(resolvedBase + path.sep) && resolved !== resolvedBase) return null;
+  return resolved;
+}
 
 export function createAPIRoutes(app: Application, gateway: any, rootDir?: string): void {
   const services = gateway.getServices();
@@ -30,6 +39,45 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
         youtube: 'https://www.youtube.com/@WritingSecrets',
       },
     });
+  });
+
+  // ── Liveness Probe (Kubernetes /healthz) ──
+  app.get('/healthz', (_req: Request, res: Response) => {
+    res.json({ status: 'alive' });
+  });
+
+  // ── Readiness Probe (Kubernetes /readyz) ──
+  app.get('/readyz', (_req: Request, res: Response) => {
+    try {
+      const providers = services.aiRouter.getActiveProviders();
+      if (providers.length > 0) {
+        res.json({ status: 'ready', providers: providers.length });
+      } else {
+        res.status(503).json({ status: 'not_ready', reason: 'no active AI providers' });
+      }
+    } catch (err: any) {
+      res.status(503).json({ status: 'not_ready', reason: err.message || 'provider check failed' });
+    }
+  });
+
+  // ── Liveness Probe (Kubernetes / Docker HEALTHCHECK) ──
+  app.get('/healthz', (_req: Request, res: Response) => {
+    res.json({ status: 'alive' });
+  });
+
+  // ── Readiness Probe ──
+  app.get('/readyz', (_req: Request, res: Response) => {
+    try {
+      const providers = services.aiRouter.getActiveProviders();
+      const count = Array.isArray(providers) ? providers.length : 0;
+      if (count > 0) {
+        res.json({ status: 'ready', providers: count });
+      } else {
+        res.status(503).json({ status: 'not_ready', reason: 'no active AI providers' });
+      }
+    } catch (err: any) {
+      res.status(503).json({ status: 'not_ready', reason: err?.message || 'provider check failed' });
+    }
   });
 
   // ── Status Dashboard ──
@@ -1168,12 +1216,12 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
     const { existsSync: ex } = await import('fs');
 
     const filename = String(req.params.filename);
-    if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
-      return res.status(400).json({ error: 'Invalid filename' });
-    }
-
     const docsDir = j(baseDir, 'workspace', 'documents');
-    const filePath = j(docsDir, filename);
+    const filePath = safePath(docsDir, filename);
+
+    if (!filePath) {
+      return res.status(403).json({ error: 'Path traversal blocked' });
+    }
 
     if (!ex(filePath)) {
       return res.status(404).json({ error: 'Document not found' });
@@ -1182,8 +1230,9 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
     await unlink(filePath);
 
     // Also delete extracted text if it exists
-    const extractedPath = j(docsDir, filename.replace(/\.docx$/i, '.extracted.txt'));
-    if (ex(extractedPath) && extractedPath !== filePath) {
+    const extractedName = filename.replace(/\.docx$/i, '.extracted.txt');
+    const extractedPath = safePath(docsDir, extractedName);
+    if (extractedPath && ex(extractedPath) && extractedPath !== filePath) {
       try { await unlink(extractedPath); } catch { /* ok */ }
     }
 
@@ -1478,11 +1527,11 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
     const filename = String(req.params.filename);
     const projectSlug = project.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
     const projectDir = j(baseDir, 'workspace', 'projects', projectSlug);
-    const filePath = rv(projectDir, filename);
+    const filePath = safePath(projectDir, filename);
 
     // Security: ensure the resolved path is inside the project directory
-    if (!filePath.startsWith(rv(projectDir))) {
-      return res.status(403).json({ error: 'Access denied' });
+    if (!filePath) {
+      return res.status(403).json({ error: 'Path traversal blocked' });
     }
 
     if (!ex(filePath)) {
@@ -1523,9 +1572,12 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
 
     const projectSlug = project.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
     const projectDir = j(baseDir, 'workspace', 'projects', projectSlug);
-    const sourcePath = rv(projectDir, String(filename));
+    const sourcePath = safePath(projectDir, String(filename));
 
-    if (!sourcePath.startsWith(rv(projectDir)) || !ex(sourcePath)) {
+    if (!sourcePath) {
+      return res.status(403).json({ error: 'Path traversal blocked' });
+    }
+    if (!ex(sourcePath)) {
       return res.status(404).json({ error: 'Source file not found' });
     }
 
@@ -1850,8 +1902,11 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
       const { readFile } = await import('fs/promises');
       const { existsSync } = await import('fs');
       const agentDir = j(baseDir, 'workspace', '.agent');
-      const filePath = r(agentDir, String(req.params.filename));
-      if (!filePath.startsWith(r(agentDir)) || !existsSync(filePath)) {
+      const filePath = safePath(agentDir, String(req.params.filename));
+      if (!filePath) {
+        return res.status(403).json({ error: 'Path traversal blocked' });
+      }
+      if (!existsSync(filePath)) {
         return res.status(404).json({ error: 'Idle task file not found' });
       }
       const content = await readFile(filePath, 'utf-8');
@@ -1929,11 +1984,15 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
 
     // Security: must be within project
     const resolvedBase = r(baseDir);
-    if (!resolvedInput.startsWith(resolvedBase)) {
-      return res.status(403).json({ error: 'Input file must be within the AuthorClaw directory' });
+    if (!resolvedInput.startsWith(resolvedBase + path.sep) && resolvedInput !== resolvedBase) {
+      return res.status(403).json({ error: 'Path traversal blocked' });
     }
 
-    const exportDir = r(workspaceDir, outputDir || 'exports');
+    // Security: outputDir must stay within workspace
+    const exportDir = safePath(workspaceDir, outputDir || 'exports');
+    if (!exportDir) {
+      return res.status(403).json({ error: 'Path traversal blocked' });
+    }
     await mkd(exportDir, { recursive: true });
 
     const content = await rf(resolvedInput, 'utf-8');
@@ -2005,9 +2064,9 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
         return res.status(400).json({ error: 'Author OS not mounted. Provide code directly.' });
       }
 
-      const resolvedPath = r(authorOSPath, filePath);
-      if (!resolvedPath.startsWith(r(authorOSPath))) {
-        return res.status(403).json({ error: 'Path must be within Author OS directory' });
+      const resolvedPath = safePath(authorOSPath, filePath);
+      if (!resolvedPath) {
+        return res.status(403).json({ error: 'Path traversal blocked' });
       }
       if (!ex(resolvedPath)) {
         return res.status(404).json({ error: `File not found: ${filePath}` });
@@ -2067,9 +2126,10 @@ ${sourceCode.substring(0, 15000)}
     const { join: j, resolve: r } = await import('path');
     const { mkdir, writeFile } = await import('fs/promises');
 
-    const fullPath = r(baseDir, skillPath);
-    if (!fullPath.startsWith(r(j(baseDir, 'skills')))) {
-      return res.status(403).json({ error: 'Can only save skills to the skills/ directory' });
+    const skillsBase = j(baseDir, 'skills');
+    const fullPath = safePath(skillsBase, skillPath.replace(/^skills[/\\]?/, ''));
+    if (!fullPath) {
+      return res.status(403).json({ error: 'Path traversal blocked' });
     }
 
     try {
@@ -2351,10 +2411,14 @@ ${sourceCode.substring(0, 15000)}
     const imageGen = gateway.getImageGen?.();
     if (!imageGen) return res.status(503).json({ error: 'Image generation service not initialized' });
 
-    const { join: j } = await import('path');
     const { existsSync: ex } = await import('fs');
     const fname = String(req.params.filename);
-    const filePath = j(imageGen.getImageDir(), fname);
+    const imageDir = imageGen.getImageDir();
+    const filePath = safePath(imageDir, fname);
+
+    if (!filePath) {
+      return res.status(403).json({ error: 'Path traversal blocked' });
+    }
 
     if (!ex(filePath) || !fname.match(/^cover-[a-f0-9]+\.png$/)) {
       return res.status(404).json({ error: 'Image not found' });
@@ -2391,14 +2455,14 @@ ${sourceCode.substring(0, 15000)}
 
   // Serve generated audio files
   app.get('/api/audio/file/:filename', async (req: Request, res: Response) => {
-    const { join: j } = await import('path');
     const { existsSync: ex } = await import('fs');
     const fname = String(req.params.filename);
-    const filePath = j(baseDir, 'workspace', 'audio', fname);
+    const audioDir = path.join(baseDir, 'workspace', 'audio');
+    const filePath = safePath(audioDir, fname);
 
     // Security: prevent path traversal
-    if (fname.includes('..') || fname.includes('/')) {
-      return res.status(400).json({ error: 'Invalid filename' });
+    if (!filePath) {
+      return res.status(403).json({ error: 'Path traversal blocked' });
     }
 
     if (!ex(filePath)) {
@@ -2445,5 +2509,233 @@ ${sourceCode.substring(0, 15000)}
     const resolvedVoice = services.tts.resolveVoice(voice);
     await services.tts.setVoice(resolvedVoice);
     res.json({ success: true, voice: resolvedVoice, message: `Voice set to ${resolvedVoice}. This persists across restarts.` });
+  });
+
+  // ── Backup & Restore ──
+
+  app.post('/api/backup/create', async (_req: Request, res: Response) => {
+    const { join: j } = await import('path');
+    const { mkdir: mkd, stat: st, readdir: rd, writeFile: wf } = await import('fs/promises');
+    const { existsSync: ex, cpSync } = await import('fs');
+
+    try {
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const backupId = `backup-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+      const backupsDir = j(baseDir, 'workspace', 'backups');
+      const backupDir = j(backupsDir, backupId);
+      await mkd(backupDir, { recursive: true });
+
+      // Sources to back up: [sourceRelative, destSubfolder]
+      const sources: Array<[string, string]> = [
+        [j('workspace', 'projects'), 'projects'],
+        [j('workspace', 'personas'), 'personas'],
+        [j('workspace', 'memory'), 'memory'],
+        [j('config', 'user.json'), 'config/user.json'],
+        [j('workspace', 'vault.enc'), 'vault.enc'],
+      ];
+
+      for (const [srcRel, destRel] of sources) {
+        const src = j(baseDir, srcRel);
+        const dest = j(backupDir, destRel);
+        if (!ex(src)) continue;
+        const srcStat = await st(src).catch(() => null);
+        if (!srcStat) continue;
+        if (srcStat.isDirectory()) {
+          cpSync(src, dest, { recursive: true });
+        } else {
+          // Ensure parent directory exists for file copies
+          const destParent = j(dest, '..');
+          await mkd(destParent, { recursive: true });
+          cpSync(src, dest);
+        }
+      }
+
+      // Write backup metadata
+      await wf(j(backupDir, 'backup-meta.json'), JSON.stringify({
+        id: backupId,
+        createdAt: now.toISOString(),
+      }, null, 2));
+
+      // Calculate total size
+      let totalSize = 0;
+      async function calcSize(dir: string): Promise<void> {
+        if (!ex(dir)) return;
+        const entries = await rd(dir, { recursive: true });
+        for (const entry of entries) {
+          try {
+            const fp = j(dir, String(entry));
+            const s = await st(fp);
+            if (s.isFile()) totalSize += s.size;
+          } catch { /* skip */ }
+        }
+      }
+      await calcSize(backupDir);
+
+      res.json({
+        success: true,
+        backupId,
+        path: backupDir,
+        sizeKB: Math.round(totalSize / 1024),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Backup creation failed' });
+    }
+  });
+
+  app.get('/api/backup/list', async (_req: Request, res: Response) => {
+    const { join: j } = await import('path');
+    const { readdir: rd, stat: st, readFile: rf } = await import('fs/promises');
+    const { existsSync: ex } = await import('fs');
+
+    try {
+      const backupsDir = j(baseDir, 'workspace', 'backups');
+      if (!ex(backupsDir)) return res.json({ backups: [] });
+
+      const entries = await rd(backupsDir);
+      const backups: Array<{ id: string; createdAt: string; sizeKB: number }> = [];
+
+      for (const entry of entries) {
+        const entryPath = j(backupsDir, entry);
+        const entryStat = await st(entryPath).catch(() => null);
+        if (!entryStat || !entryStat.isDirectory()) continue;
+
+        // Read metadata if available
+        let createdAt = entryStat.birthtime.toISOString();
+        const metaPath = j(entryPath, 'backup-meta.json');
+        if (ex(metaPath)) {
+          try {
+            const meta = JSON.parse(await rf(metaPath, 'utf-8'));
+            if (meta.createdAt) createdAt = meta.createdAt;
+          } catch { /* ok */ }
+        }
+
+        // Calculate size
+        let totalSize = 0;
+        try {
+          const files = await rd(entryPath, { recursive: true });
+          for (const f of files) {
+            try {
+              const fp = j(entryPath, String(f));
+              const s = await st(fp);
+              if (s.isFile()) totalSize += s.size;
+            } catch { /* skip */ }
+          }
+        } catch { /* ok */ }
+
+        backups.push({ id: entry, createdAt, sizeKB: Math.round(totalSize / 1024) });
+      }
+
+      // Sort newest first
+      backups.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      res.json({ backups });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to list backups' });
+    }
+  });
+
+  app.post('/api/backup/restore/:id', async (req: Request, res: Response) => {
+    const { join: j } = await import('path');
+    const { mkdir: mkd, stat: st, readdir: rd, writeFile: wf } = await import('fs/promises');
+    const { existsSync: ex, cpSync } = await import('fs');
+
+    try {
+      const backupId = String(req.params.id);
+      const backupsDir = j(baseDir, 'workspace', 'backups');
+      const backupDir = j(backupsDir, backupId);
+
+      if (!ex(backupDir)) {
+        return res.status(404).json({ error: `Backup '${backupId}' not found` });
+      }
+
+      // Create a safety backup first
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const safetyId = `pre-restore-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+      const safetyDir = j(backupsDir, safetyId);
+      await mkd(safetyDir, { recursive: true });
+
+      // Back up current state before restoring
+      const currentSources: Array<[string, string]> = [
+        [j('workspace', 'projects'), 'projects'],
+        [j('workspace', 'personas'), 'personas'],
+        [j('workspace', 'memory'), 'memory'],
+        [j('config', 'user.json'), 'config/user.json'],
+        [j('workspace', 'vault.enc'), 'vault.enc'],
+      ];
+
+      for (const [srcRel, destRel] of currentSources) {
+        const src = j(baseDir, srcRel);
+        const dest = j(safetyDir, destRel);
+        if (!ex(src)) continue;
+        const srcStat = await st(src).catch(() => null);
+        if (!srcStat) continue;
+        if (srcStat.isDirectory()) {
+          cpSync(src, dest, { recursive: true });
+        } else {
+          const destParent = j(dest, '..');
+          await mkd(destParent, { recursive: true });
+          cpSync(src, dest);
+        }
+      }
+
+      await wf(j(safetyDir, 'backup-meta.json'), JSON.stringify({
+        id: safetyId,
+        createdAt: now.toISOString(),
+        reason: `Pre-restore safety backup before restoring ${backupId}`,
+      }, null, 2));
+
+      // Restore from the selected backup
+      const restoreMap: Array<[string, string]> = [
+        ['projects', j('workspace', 'projects')],
+        ['personas', j('workspace', 'personas')],
+        ['memory', j('workspace', 'memory')],
+        ['config/user.json', j('config', 'user.json')],
+        ['vault.enc', j('workspace', 'vault.enc')],
+      ];
+
+      for (const [srcRel, destRel] of restoreMap) {
+        const src = j(backupDir, srcRel);
+        const dest = j(baseDir, destRel);
+        if (!ex(src)) continue;
+        const srcStat = await st(src).catch(() => null);
+        if (!srcStat) continue;
+        if (srcStat.isDirectory()) {
+          cpSync(src, dest, { recursive: true });
+        } else {
+          const destParent = j(dest, '..');
+          await mkd(destParent, { recursive: true });
+          cpSync(src, dest);
+        }
+      }
+
+      res.json({
+        success: true,
+        restoredFrom: backupId,
+        safetyBackup: safetyId,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Restore failed' });
+    }
+  });
+
+  app.delete('/api/backup/:id', async (req: Request, res: Response) => {
+    const { join: j } = await import('path');
+    const { rm } = await import('fs/promises');
+    const { existsSync: ex } = await import('fs');
+
+    try {
+      const backupId = String(req.params.id);
+      const backupDir = j(baseDir, 'workspace', 'backups', backupId);
+
+      if (!ex(backupDir)) {
+        return res.status(404).json({ error: `Backup '${backupId}' not found` });
+      }
+
+      await rm(backupDir, { recursive: true });
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Delete failed' });
+    }
   });
 }
