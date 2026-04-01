@@ -426,8 +426,19 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
     res.json({ success: true, users });
   });
 
-  app.post('/api/telegram/connect', async (_req: Request, res: Response) => {
+  app.post('/api/telegram/connect', async (req: Request, res: Response) => {
     try {
+      const { token, userId } = req.body || {};
+
+      // Save token and userId to vault before connecting
+      if (token) {
+        await services.vault.set('telegram_bot_token', token);
+        await services.audit.log('vault', 'telegram_token_saved', {});
+      }
+      if (userId) {
+        await services.config.setAndPersist('bridges.telegram.allowedUsers', [String(userId)]);
+      }
+
       const result = await gateway.connectTelegram?.();
       if (result?.error) {
         return res.status(400).json({ error: result.error });
