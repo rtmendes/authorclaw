@@ -695,7 +695,7 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
    * This gives the AI the beginning (setup, style, voice) and ending (current state)
    * which is ideal for revision, editing, and analysis tasks.
    */
-  async function getSmartExcerpt(filePath: string, wordCount: number): Promise<string> {
+  async function getSmartExcerpt(filePath: string, wordCount: number, maxChars = 25000): Promise<string> {
     const { readFile: rf } = await import('fs/promises');
     const { existsSync: ex } = await import('fs');
 
@@ -704,15 +704,14 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
     }
 
     const fullText = await rf(filePath, 'utf-8');
-    const MAX_CHARS = 25000; // ~6K words — fits comfortably in AI context
 
-    if (fullText.length <= MAX_CHARS) {
+    if (fullText.length <= maxChars) {
       return fullText; // Small enough to include everything
     }
 
-    // Smart split: first 20K + last 5K
-    const headSize = 20000;
-    const tailSize = 5000;
+    // Smart split: 80% head + 20% tail
+    const headSize = Math.floor(maxChars * 0.8);
+    const tailSize = maxChars - headSize;
     const head = fullText.substring(0, headSize);
     const tail = fullText.substring(fullText.length - tailSize);
 
@@ -725,6 +724,18 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
       `${tail}`;
   }
 
+  // Returns true if the step requires the FULL manuscript in context (not a truncated excerpt).
+  // Revision-apply steps must see the whole book to rewrite it correctly.
+  function stepNeedsFullManuscript(step: any): boolean {
+    const phase = String(step?.phase || '').toLowerCase();
+    const label = String(step?.label || '').toLowerCase();
+    return phase === 'revision_apply' ||
+      label.includes('apply macro revision') ||
+      label.includes('apply scene-level revision') ||
+      label.includes('apply line-level revision') ||
+      label.includes('full manuscript rewrite');
+  }
+
   // Helper: build user message for project step execution
   // Injects uploaded manuscript DIRECTLY into the user message so the AI can't miss it
   // For large documents (15K+ words): reads from disk and applies smart truncation
@@ -733,20 +744,31 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
     const uploads = project.context?.uploads || [];
     const fileList = uploads.map((u: any) => `${u.filename} (${u.wordCount?.toLocaleString() || '?'} words)`).join(', ');
 
-    // Large document path: read from disk with smart truncation
+    // Revision-apply steps need to see the full manuscript; analysis steps get a smart excerpt.
+    const fullNeeded = stepNeedsFullManuscript(step);
+    const charCap = fullNeeded ? 600000 : 30000;  // ~120K words when needed (fits Claude/Gemini context)
+
+    // Large document path: read from disk with cap-aware truncation
     if (project.context?.documentLibraryFile) {
       const excerpt = await getSmartExcerpt(
         project.context.documentLibraryFile,
-        project.context.documentWordCount || 0
+        project.context.documentWordCount || 0,
+        charCap
       );
-      message = `## Manuscript to Work With\n\nUploaded files: ${fileList}\n\n${excerpt}\n\n---\n\n## Your Task\n\n${message}`;
+      const headerNote = fullNeeded
+        ? `\n\n⚠️ This is a REVISION APPLY step. You MUST rewrite the ENTIRE manuscript below (or as much as fits in your response — the system will ask for continuations).\n\n`
+        : '';
+      message = `## Manuscript to Work With\n\nUploaded files: ${fileList}${headerNote}\n\n${excerpt}\n\n---\n\n## Your Task\n\n${message}`;
       return message;
     }
 
-    // Small document path: use inline uploaded content (same as before)
+    // Small document path: use inline uploaded content
     if (project.context?.uploadedContent) {
-      const uploaded = String(project.context.uploadedContent).substring(0, 30000);
-      message = `## Manuscript to Work With\n\nUploaded files: ${fileList}\n\n${uploaded}\n\n---\n\n## Your Task\n\n${message}`;
+      const uploaded = String(project.context.uploadedContent).substring(0, charCap);
+      const headerNote = fullNeeded
+        ? `\n\n⚠️ This is a REVISION APPLY step. You MUST rewrite the ENTIRE manuscript below (or as much as fits in your response — the system will ask for continuations).\n\n`
+        : '';
+      message = `## Manuscript to Work With\n\nUploaded files: ${fileList}${headerNote}\n\n${uploaded}\n\n---\n\n## Your Task\n\n${message}`;
     }
 
     return message;
@@ -885,6 +907,49 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
           engine.failStep(currentProject.id, activeStep.id, 'Empty or too-short response from AI');
           results.push({ step: activeStep.label, success: false, error: 'Insufficient AI response' });
           break;
+        }
+
+        // ── Continuation logic for long-output steps (revision-apply + novel writing) ──
+        // Revision-apply steps must produce a FULL manuscript. If the response is shorter
+        // than the source (or shorter than the explicit wordCountTarget), ask the AI to
+        // continue. This prevents the user from getting a half-revised book.
+        {
+          const isRevisionApply = stepNeedsFullManuscript(activeStep);
+          const wcTarget = (activeStep as any).wordCountTarget ||
+            (isRevisionApply ? Math.floor((currentProject.context?.documentWordCount || 0) * 0.9) : 0);
+          if (wcTarget && wcTarget > 0) {
+            let wc = response.split(/\s+/).length;
+            let continuations = 0;
+            while (wc < wcTarget && continuations < 6) {
+              continuations++;
+              const remaining = wcTarget - wc;
+              console.log(`  [${isRevisionApply ? 'revision-apply' : 'writing'}] Response word count: ${wc}/${wcTarget} — requesting continuation #${continuations} (~${remaining} more words)`);
+              let contResponse = '';
+              try {
+                const contPrompt = isRevisionApply
+                  ? `Continue the revised manuscript from EXACTLY where you left off. You've produced ${wc} words so far; the target is ${wcTarget}. Output at least ${Math.min(remaining, 15000)} more words of the revised manuscript, continuing from the last chapter boundary. Do NOT repeat content. Do NOT summarize. Do NOT add commentary. Output ONLY the continued manuscript prose.`
+                  : `Continue writing from where you left off. You wrote ${wc} words so far but the target is ${wcTarget}. Write at least ${remaining} more words of prose narrative, continuing the story seamlessly. Do NOT repeat what was already written. Do NOT summarize.`;
+                await gateway.handleMessage(
+                  contPrompt,
+                  'project-engine',
+                  (text: string) => { contResponse = text; },
+                  projectContext,
+                  activeStep.taskType || undefined,
+                );
+                if (contResponse.length > 100) {
+                  response = response + '\n\n' + contResponse;
+                  wc = response.split(/\s+/).length;
+                } else {
+                  break;
+                }
+              } catch {
+                break;
+              }
+            }
+            if (continuations > 0) {
+              console.log(`  [${isRevisionApply ? 'revision-apply' : 'writing'}] Final word count after ${continuations} continuation(s): ${response.split(/\s+/).length}`);
+            }
+          }
         }
 
         const wordCount = response.split(/\s+/).length;
@@ -1669,6 +1734,60 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
       const entries = await rd(projectDir);
       const sectionContents: string[] = [];
       const isChapterProject = project.type === 'book-production' || project.type === 'novel-pipeline';
+      const isDeepRevision = project.type === 'deep-revision';
+      let revisionReportContent: string | null = null;  // Analysis reports saved separately
+
+      // ── Deep Revision compile: use the FINAL revision-apply step output as the book ──
+      // Without this branch, users got 21 concatenated analysis reports instead of the revised manuscript.
+      if (isDeepRevision) {
+        // Find the last completed revision_apply step (the final polish pass).
+        const applySteps = project.steps
+          .filter((s: any) => s.phase === 'revision_apply' && s.status === 'completed');
+        const finalApplyStep = applySteps[applySteps.length - 1];
+
+        if (finalApplyStep) {
+          const expectedFile = `${(finalApplyStep as any).id}-${(finalApplyStep as any).label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.md`;
+          const fullPath = j(projectDir, expectedFile);
+          if (ex(fullPath)) {
+            const raw = await rf(fullPath, 'utf-8');
+            // Strip the leading "# <label>" heading we saved with so downstream doesn't double-wrap it.
+            const content = raw.replace(/^# .+\n\n/, '');
+            sectionContents.push(content);
+            console.log(`  [deep-revision] Using "${finalApplyStep.label}" output as the compiled revised manuscript (${content.length} chars).`);
+          }
+        }
+
+        // Gather all the analysis reports (non-apply completed steps) into a separate report file.
+        const analysisSteps = project.steps.filter((s: any) =>
+          s.status === 'completed' && s.phase !== 'revision_apply'
+        );
+        if (analysisSteps.length > 0) {
+          const reportSections: string[] = [];
+          for (const as of analysisSteps) {
+            const filename = `${(as as any).id}-${(as as any).label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.md`;
+            const fullPath = j(projectDir, filename);
+            if (ex(fullPath)) {
+              const raw = await rf(fullPath, 'utf-8');
+              reportSections.push(raw.startsWith('# ') ? raw : `## ${as.label}\n\n${raw}`);
+            }
+          }
+          if (reportSections.length > 0) {
+            revisionReportContent = `# ${project.title} — Revision Report\n\n` +
+              `This report contains the full diagnostic analysis from ${reportSections.length} revision passes. ` +
+              `Your revised manuscript is saved separately as \`manuscript.md\` / \`manuscript.docx\` / \`manuscript.epub\`.\n\n---\n\n` +
+              reportSections.join('\n\n---\n\n');
+          }
+        }
+
+        // If no revision_apply step has run yet, fall through to the universal path below,
+        // but warn the caller so the dashboard can surface it.
+        if (sectionContents.length === 0) {
+          return res.status(400).json({
+            error: 'Revised manuscript not ready',
+            detail: 'The revision-apply steps have not completed yet. Finish running the project (or trigger the "Apply line-level revisions" step) before compiling. The analysis-only reports alone are not a revised book.',
+          });
+        }
+      }
 
       if (isChapterProject) {
         // ── Chapter-based compile (book-production / novel-pipeline) ──
@@ -1743,8 +1862,14 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
 
       // Build compiled document
       const compiledMd = `# ${project.title}\n\n` + sectionContents.join('\n\n---\n\n');
-      const outputBaseName = isChapterProject ? 'manuscript' : 'compiled-output';
+      // Deep-revision produces a real revised manuscript, so name it 'manuscript' (not 'compiled-output').
+      const outputBaseName = (isChapterProject || isDeepRevision) ? 'manuscript' : 'compiled-output';
       await wf(j(projectDir, `${outputBaseName}.md`), compiledMd, 'utf-8');
+
+      // For revision projects, save the diagnostic report as a companion file so users can download both.
+      if (isDeepRevision && revisionReportContent) {
+        await wf(j(projectDir, 'revision-report.md'), revisionReportContent, 'utf-8');
+      }
 
       // Get persona info for metadata
       const personaId = (project as any).personaId;
@@ -1780,12 +1905,16 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
       } catch { /* EPUB generation is non-fatal */ }
 
       const totalWords = compiledMd.split(/\s+/).length;
+      // Report the revision-report companion file too, so the dashboard can offer a download link.
+      if (isDeepRevision && revisionReportContent) exportFiles.push('revision-report.md');
       res.json({
         success: true,
         sections: sectionContents.length,
         totalWords,
         files: exportFiles,
         outputName: outputBaseName,
+        kind: isDeepRevision ? 'revised-manuscript' : (isChapterProject ? 'manuscript' : 'compiled-output'),
+        hasRevisionReport: isDeepRevision && !!revisionReportContent,
       });
     } catch (err) {
       res.status(500).json({ error: 'Compile failed: ' + String(err) });
@@ -3632,6 +3761,361 @@ ${sourceCode.substring(0, 15000)}
       res.json({ profile });
     } catch (err: any) {
       res.status(400).json({ error: err?.message || 'Analysis failed' });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  // Wave 3 — Autonomous Career Agent (ALL ACTIONS ARE GATED)
+  // ═══════════════════════════════════════════════════════════
+
+  // Universal disclaimer returned with every Wave 3 response header.
+  const addWaveDisclaimer = (res: Response) => {
+    res.setHeader('X-AuthorClaw-Disclaimer', 'Wave 3 actions create confirmation requests but do not execute irreversible actions autonomously. You are responsible for every approved action. See SECURITY.md.');
+  };
+
+  // ── Confirmation Gate ──
+
+  app.get('/api/confirmations', (req: Request, res: Response) => {
+    const gate = services.confirmationGate;
+    if (!gate) return res.json({ requests: [], disclaimer: '' });
+    const status = req.query.status as any;
+    const service = req.query.service as any;
+    addWaveDisclaimer(res);
+    res.json({
+      requests: gate.list({ status, service }),
+      disclaimer: services.disclosures?.universalDisclaimer() || '',
+    });
+  });
+
+  app.get('/api/confirmations/:id', (req: Request, res: Response) => {
+    const gate = services.confirmationGate;
+    if (!gate) return res.status(503).json({ error: 'Confirmation gate not initialized' });
+    const req_ = gate.get(req.params.id);
+    if (!req_) return res.status(404).json({ error: 'Not found' });
+    addWaveDisclaimer(res);
+    res.json({ request: req_ });
+  });
+
+  app.post('/api/confirmations/:id/approve', async (req: Request, res: Response) => {
+    const gate = services.confirmationGate;
+    if (!gate) return res.status(503).json({ error: 'Confirmation gate not initialized' });
+    try {
+      const result = await gate.approve(req.params.id);
+      if (!result) return res.status(404).json({ error: 'Not found' });
+      addWaveDisclaimer(res);
+      res.json({ request: result });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'Approval failed' });
+    }
+  });
+
+  app.post('/api/confirmations/:id/reject', async (req: Request, res: Response) => {
+    const gate = services.confirmationGate;
+    if (!gate) return res.status(503).json({ error: 'Confirmation gate not initialized' });
+    try {
+      const result = await gate.reject(req.params.id, 'user', req.body?.reason);
+      if (!result) return res.status(404).json({ error: 'Not found' });
+      res.json({ request: result });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'Rejection failed' });
+    }
+  });
+
+  app.post('/api/confirmations/:id/outcome', async (req: Request, res: Response) => {
+    const gate = services.confirmationGate;
+    if (!gate) return res.status(503).json({ error: 'Confirmation gate not initialized' });
+    const { success, message, externalId, metadata } = req.body || {};
+    if (typeof success !== 'boolean' || !message) {
+      return res.status(400).json({ error: 'success (boolean) and message (string) required' });
+    }
+    try {
+      const result = await gate.recordOutcome(req.params.id, {
+        success, message, externalId, executedAt: new Date().toISOString(), metadata,
+      });
+      if (!result) return res.status(404).json({ error: 'Not found' });
+      res.json({ request: result });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'Outcome recording failed' });
+    }
+  });
+
+  // ── Disclosures ──
+
+  app.get('/api/disclosures/universal', (_req: Request, res: Response) => {
+    const d = services.disclosures;
+    if (!d) return res.status(503).json({ error: 'Disclosures not initialized' });
+    res.json({ text: d.universalDisclaimer() });
+  });
+
+  app.post('/api/disclosures/check', (req: Request, res: Response) => {
+    const d = services.disclosures;
+    if (!d) return res.status(503).json({ error: 'Disclosures not initialized' });
+    const { platform, scopes, acknowledgedScopes } = req.body || {};
+    if (!platform || !Array.isArray(scopes)) {
+      return res.status(400).json({ error: 'platform and scopes (array) required' });
+    }
+    const result = d.checkCompliance({
+      platform, scopes,
+      acknowledgedScopes: Array.isArray(acknowledgedScopes) ? acknowledgedScopes : [],
+    });
+    res.json(result);
+  });
+
+  // ── Launch Orchestrator ──
+
+  app.get('/api/launches', (_req: Request, res: Response) => {
+    const l = services.launchOrchestrator;
+    if (!l) return res.json({ launches: [] });
+    addWaveDisclaimer(res);
+    res.json({ launches: l.listLaunches() });
+  });
+
+  app.post('/api/launches', async (req: Request, res: Response) => {
+    const l = services.launchOrchestrator;
+    if (!l) return res.status(503).json({ error: 'Launch orchestrator not initialized' });
+    const { projectId, bookTitle, authorName, targetReleaseDate, metadata } = req.body || {};
+    if (!projectId || !bookTitle || !authorName || !targetReleaseDate) {
+      return res.status(400).json({ error: 'projectId, bookTitle, authorName, targetReleaseDate required' });
+    }
+    const launch = await l.createLaunch({ projectId, bookTitle, authorName, targetReleaseDate, metadata });
+    addWaveDisclaimer(res);
+    res.json({ launch });
+  });
+
+  app.get('/api/launches/:id', (req: Request, res: Response) => {
+    const l = services.launchOrchestrator;
+    if (!l) return res.status(503).json({ error: 'Launch orchestrator not initialized' });
+    const launch = l.getLaunch(req.params.id);
+    if (!launch) return res.status(404).json({ error: 'Not found' });
+    res.json({ launch, plan: l.buildPlan(launch) });
+  });
+
+  app.patch('/api/launches/:id', async (req: Request, res: Response) => {
+    const l = services.launchOrchestrator;
+    if (!l) return res.status(503).json({ error: 'Launch orchestrator not initialized' });
+    const result = await l.updateMetadata(req.params.id, req.body?.metadata || {});
+    if (!result) return res.status(404).json({ error: 'Not found' });
+    res.json({ launch: result });
+  });
+
+  app.post('/api/launches/:id/acknowledge-disclosures', async (req: Request, res: Response) => {
+    const l = services.launchOrchestrator;
+    if (!l) return res.status(503).json({ error: 'Launch orchestrator not initialized' });
+    const { scopes } = req.body || {};
+    if (!Array.isArray(scopes)) return res.status(400).json({ error: 'scopes (array) required' });
+    const result = await l.acknowledgeDisclosures(req.params.id, scopes);
+    if (!result) return res.status(404).json({ error: 'Not found' });
+    res.json({ launch: result });
+  });
+
+  app.post('/api/launches/:id/propose-step', async (req: Request, res: Response) => {
+    const l = services.launchOrchestrator;
+    if (!l) return res.status(503).json({ error: 'Launch orchestrator not initialized' });
+    const { phase } = req.body || {};
+    if (!phase) return res.status(400).json({ error: 'phase required' });
+    try {
+      const result = await l.proposeStep(req.params.id, phase);
+      addWaveDisclaimer(res);
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'Proposal failed' });
+    }
+  });
+
+  app.delete('/api/launches/:id', async (req: Request, res: Response) => {
+    const l = services.launchOrchestrator;
+    if (!l) return res.status(503).json({ error: 'Launch orchestrator not initialized' });
+    const removed = await l.deleteLaunch(req.params.id);
+    res.json({ success: removed });
+  });
+
+  // ── AMS Ads ──
+
+  app.post('/api/ams/propose-campaigns', (req: Request, res: Response) => {
+    const ams = services.amsAds;
+    if (!ams) return res.status(503).json({ error: 'AMS service not initialized' });
+    const { bookTitle, genre, keywords, dailyBudgetCeilingUSD } = req.body || {};
+    if (!bookTitle || !genre || !Array.isArray(keywords) || typeof dailyBudgetCeilingUSD !== 'number') {
+      return res.status(400).json({ error: 'bookTitle, genre, keywords (array), dailyBudgetCeilingUSD (number) required' });
+    }
+    addWaveDisclaimer(res);
+    res.json({ campaigns: ams.proposeCampaigns({ bookTitle, genre, keywords, dailyBudgetCeilingUSD }) });
+  });
+
+  app.post('/api/ams/optimize', (req: Request, res: Response) => {
+    const ams = services.amsAds;
+    if (!ams) return res.status(503).json({ error: 'AMS service not initialized' });
+    const { performance, acosTargetPct, dailyBudgetCeilingUSD, currentDailySpendUSD } = req.body || {};
+    if (!Array.isArray(performance) || typeof acosTargetPct !== 'number'
+        || typeof dailyBudgetCeilingUSD !== 'number' || typeof currentDailySpendUSD !== 'number') {
+      return res.status(400).json({ error: 'performance (array), acosTargetPct, dailyBudgetCeilingUSD, currentDailySpendUSD required' });
+    }
+    addWaveDisclaimer(res);
+    res.json(ams.optimize({ performance, acosTargetPct, dailyBudgetCeilingUSD, currentDailySpendUSD }));
+  });
+
+  // ── BookBub ──
+
+  app.post('/api/bookbub/draft', (req: Request, res: Response) => {
+    const bb = services.bookbub;
+    if (!bb) return res.status(503).json({ error: 'BookBub service not initialized' });
+    const { title, authorName, genre, amazonBlurb } = req.body || {};
+    if (!title || !authorName || !genre || !amazonBlurb) {
+      return res.status(400).json({ error: 'title, authorName, genre, amazonBlurb required' });
+    }
+    addWaveDisclaimer(res);
+    res.json({ draft: bb.buildDraft(req.body) });
+  });
+
+  // ── Release Calendar ──
+
+  app.get('/api/calendar', (req: Request, res: Response) => {
+    const c = services.releaseCalendar;
+    if (!c) return res.json({ events: [] });
+    res.json({
+      events: c.list({
+        projectId: req.query.projectId as any,
+        category: req.query.category as any,
+        from: req.query.from as any,
+        to: req.query.to as any,
+      }),
+      atRisk: c.atRisk(),
+    });
+  });
+
+  app.post('/api/calendar', async (req: Request, res: Response) => {
+    const c = services.releaseCalendar;
+    if (!c) return res.status(503).json({ error: 'Calendar not initialized' });
+    try {
+      const event = await c.createEvent(req.body);
+      res.json({ event });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'Create failed' });
+    }
+  });
+
+  app.post('/api/calendar/price-pulse-plan', async (req: Request, res: Response) => {
+    const c = services.releaseCalendar;
+    if (!c) return res.status(503).json({ error: 'Calendar not initialized' });
+    const { projectId, bookTitle, releaseDate, launchPrice, tailPrice } = req.body || {};
+    if (!projectId || !bookTitle || !releaseDate) {
+      return res.status(400).json({ error: 'projectId, bookTitle, releaseDate required' });
+    }
+    const events = c.buildPricePulsePlan({ projectId, bookTitle, releaseDate, launchPrice, tailPrice });
+    for (const ev of events) await c.createEvent(ev);
+    res.json({ events });
+  });
+
+  app.patch('/api/calendar/:id', async (req: Request, res: Response) => {
+    const c = services.releaseCalendar;
+    if (!c) return res.status(503).json({ error: 'Calendar not initialized' });
+    const result = await c.updateEvent(req.params.id, req.body || {});
+    if (!result) return res.status(404).json({ error: 'Not found' });
+    res.json({ event: result });
+  });
+
+  app.delete('/api/calendar/:id', async (req: Request, res: Response) => {
+    const c = services.releaseCalendar;
+    if (!c) return res.status(503).json({ error: 'Calendar not initialized' });
+    const removed = await c.removeEvent(req.params.id);
+    res.json({ success: removed });
+  });
+
+  app.get('/api/calendar/export.ics', (req: Request, res: Response) => {
+    const c = services.releaseCalendar;
+    if (!c) return res.status(503).json({ error: 'Calendar not initialized' });
+    const ics = c.exportICS({
+      projectId: req.query.projectId as any,
+      from: req.query.from as any,
+      to: req.query.to as any,
+    });
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="authorclaw-calendar.ics"');
+    res.send(ics);
+  });
+
+  // ── Reader Intel ──
+
+  app.post('/api/reader-intel/analyze', async (req: Request, res: Response) => {
+    const ri = services.readerIntel;
+    if (!ri) return res.status(503).json({ error: 'Reader intel not initialized' });
+    const { reviews } = req.body || {};
+    if (!Array.isArray(reviews)) return res.status(400).json({ error: 'reviews (array) required' });
+    try {
+      const sanitized = await ri.sanitize(reviews);
+      const report = ri.analyze(sanitized);
+      res.json({ report, sanitizedCount: sanitized.length });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'Analysis failed' });
+    }
+  });
+
+  // ── Translation Pipeline ──
+
+  app.post('/api/translation/plan', (req: Request, res: Response) => {
+    const tp = services.translationPipeline;
+    if (!tp) return res.status(503).json({ error: 'Translation pipeline not initialized' });
+    const { projectId, bookTitle, targetLangs, estimatedWordCount, sourceLang } = req.body || {};
+    if (!projectId || !bookTitle || !Array.isArray(targetLangs) || typeof estimatedWordCount !== 'number') {
+      return res.status(400).json({ error: 'projectId, bookTitle, targetLangs (array), estimatedWordCount (number) required' });
+    }
+    addWaveDisclaimer(res);
+    res.json(tp.plan({ projectId, bookTitle, targetLangs, estimatedWordCount, sourceLang }));
+  });
+
+  app.post('/api/translation/propose', async (req: Request, res: Response) => {
+    const tp = services.translationPipeline;
+    if (!tp) return res.status(503).json({ error: 'Translation pipeline not initialized' });
+    const { projectId, bookTitle, targetLang, estimatedWordCount, sampleText } = req.body || {};
+    if (!projectId || !bookTitle || !targetLang || typeof estimatedWordCount !== 'number') {
+      return res.status(400).json({ error: 'projectId, bookTitle, targetLang, estimatedWordCount required' });
+    }
+    try {
+      const result = await tp.proposeTranslation({ projectId, bookTitle, targetLang, estimatedWordCount, sampleText });
+      addWaveDisclaimer(res);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'Proposal failed' });
+    }
+  });
+
+  app.post('/api/translation/rights-pitch', (req: Request, res: Response) => {
+    const tp = services.translationPipeline;
+    if (!tp) return res.status(503).json({ error: 'Translation pipeline not initialized' });
+    const { targetLang, bookTitle, authorName, genre, wordCountApprox, comps, marketingAngle } = req.body || {};
+    if (!targetLang || !bookTitle || !authorName || !genre || typeof wordCountApprox !== 'number') {
+      return res.status(400).json({ error: 'targetLang, bookTitle, authorName, genre, wordCountApprox required' });
+    }
+    res.json(tp.generateRightsPitch({ targetLang, bookTitle, authorName, genre, wordCountApprox, comps, marketingAngle }));
+  });
+
+  // ── Website Builder ──
+
+  app.get('/api/websites', async (_req: Request, res: Response) => {
+    const w = services.websiteBuilder;
+    if (!w) return res.json({ sites: [] });
+    const sites = await w.listSites();
+    res.json({ sites });
+  });
+
+  app.post('/api/websites/build', async (req: Request, res: Response) => {
+    const w = services.websiteBuilder;
+    if (!w) return res.status(503).json({ error: 'Website builder not initialized' });
+    const { config, books, blogPosts, aboutHTML, contactHTML } = req.body || {};
+    if (!config || !config.slug || !config.siteName || !config.authorName || !config.baseUrl) {
+      return res.status(400).json({ error: 'config with slug, siteName, authorName, baseUrl required' });
+    }
+    try {
+      const result = await w.build({
+        config,
+        books: Array.isArray(books) ? books : [],
+        blogPosts: Array.isArray(blogPosts) ? blogPosts : [],
+        aboutHTML, contactHTML,
+      });
+      addWaveDisclaimer(res);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'Build failed' });
     }
   });
 }

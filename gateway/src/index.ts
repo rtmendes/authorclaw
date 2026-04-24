@@ -54,6 +54,15 @@ import { SeriesBibleService } from './services/series-bible.js';
 import { CraftCriticService } from './services/craft-critic.js';
 import { AudiobookPrepService } from './services/audiobook-prep.js';
 import { StyleCloneService } from './services/style-clone.js';
+import { ConfirmationGateService } from './services/confirmation-gate.js';
+import { DisclosuresService } from './services/disclosures.js';
+import { LaunchOrchestratorService } from './services/launch-orchestrator.js';
+import { AMSAdsService } from './services/ams-ads.js';
+import { BookBubSubmitterService } from './services/bookbub-submitter.js';
+import { ReleaseCalendarService } from './services/release-calendar.js';
+import { ReaderIntelService } from './services/reader-intel.js';
+import { TranslationPipelineService } from './services/translation-pipeline.js';
+import { WebsiteBuilderService } from './services/website-builder.js';
 import { TelegramBridge } from './bridges/telegram.js';
 import { DiscordBridge } from './bridges/discord.js';
 import { createAPIRoutes } from './api/routes.js';
@@ -113,6 +122,16 @@ class AuthorClawGateway {
   private craftCritic!: CraftCriticService;
   private audiobookPrep!: AudiobookPrepService;
   private styleClone!: StyleCloneService;
+  // Wave 3 — autonomous career agent with safety rails
+  private confirmationGate!: ConfirmationGateService;
+  private disclosures!: DisclosuresService;
+  private launchOrchestrator!: LaunchOrchestratorService;
+  private amsAds!: AMSAdsService;
+  private bookbub!: BookBubSubmitterService;
+  private releaseCalendar!: ReleaseCalendarService;
+  private readerIntel!: ReaderIntelService;
+  private translationPipeline!: TranslationPipelineService;
+  private websiteBuilder!: WebsiteBuilderService;
   private telegram?: TelegramBridge;
   private discord?: DiscordBridge;
 
@@ -355,6 +374,35 @@ class AuthorClawGateway {
     this.audiobookPrep = new AudiobookPrepService();
     this.styleClone = new StyleCloneService();
     console.log('  ✓ Craft critic, audiobook prep, style clone ready');
+
+    // ── Phase 6k: Wave 3 — autonomous career agent (gated) ──
+    this.confirmationGate = new ConfirmationGateService(join(ROOT_DIR, 'workspace'));
+    this.confirmationGate.setAuditLogger((category, action, meta) => this.audit.log(category, action, meta));
+    await this.confirmationGate.initialize();
+    console.log(`  ✓ Confirmation gate: ${this.confirmationGate.list({ status: 'pending' }).length} pending`);
+
+    this.disclosures = new DisclosuresService();
+
+    this.launchOrchestrator = new LaunchOrchestratorService(join(ROOT_DIR, 'workspace'));
+    this.launchOrchestrator.setDependencies(this.confirmationGate, this.disclosures);
+    await this.launchOrchestrator.initialize();
+    console.log(`  ✓ Launch orchestrator: ${this.launchOrchestrator.listLaunches().length} launch(es) tracked`);
+
+    this.amsAds = new AMSAdsService();
+    this.bookbub = new BookBubSubmitterService();
+
+    this.releaseCalendar = new ReleaseCalendarService(join(ROOT_DIR, 'workspace'));
+    await this.releaseCalendar.initialize();
+    console.log(`  ✓ Release calendar: ${this.releaseCalendar.list().length} event(s)`);
+
+    this.readerIntel = new ReaderIntelService();
+
+    this.translationPipeline = new TranslationPipelineService();
+    this.translationPipeline.setGate(this.confirmationGate);
+
+    this.websiteBuilder = new WebsiteBuilderService(join(ROOT_DIR, 'workspace'));
+    console.log('  ✓ AMS, BookBub, Reader Intel, Translation, Website Builder ready');
+    console.log('  ⚠ Wave 3 actions are gated — review SECURITY.md and confirm every external action.');
 
     // ── Phase 7: Heartbeat ──
     this.heartbeat = new HeartbeatService(this.config.get('heartbeat'), this.memory);
@@ -1126,6 +1174,15 @@ class AuthorClawGateway {
       craftCritic: this.craftCritic,
       audiobookPrep: this.audiobookPrep,
       styleClone: this.styleClone,
+      confirmationGate: this.confirmationGate,
+      disclosures: this.disclosures,
+      launchOrchestrator: this.launchOrchestrator,
+      amsAds: this.amsAds,
+      bookbub: this.bookbub,
+      releaseCalendar: this.releaseCalendar,
+      readerIntel: this.readerIntel,
+      translationPipeline: this.translationPipeline,
+      websiteBuilder: this.websiteBuilder,
     };
   }
 

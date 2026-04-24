@@ -81,7 +81,7 @@ export interface ProjectStep {
   result?: string;
   error?: string;
   // Novel pipeline fields:
-  phase?: string;           // 'premise' | 'bible' | 'outline' | 'writing' | 'revision' | 'assembly'
+  phase?: string;           // 'premise' | 'bible' | 'outline' | 'writing' | 'revision' | 'revision_apply' | 'assembly'
   wordCountTarget?: number; // Target words for this step (triggers multi-pass continuation)
   chapterNumber?: number;   // Chapter number for writing/revision steps
 }
@@ -114,6 +114,9 @@ interface ProjectTemplate {
     toolSuggestion?: string;
     taskType: string;
     promptTemplate: string; // Uses {{title}}, {{description}}, {{genre}}, etc.
+    phase?: string;           // Optional phase marker (e.g. 'revision_apply')
+    wordCountTarget?: number; // Optional target word count (triggers continuation)
+    chapterNumber?: number;   // Optional chapter number
   }>;
 }
 
@@ -742,6 +745,102 @@ Create:
 8. **Encouraging Close**: What makes this book worth finishing
 
 Make every recommendation specific and actionable with chapter references.`,
+      },
+
+      // ══ Pass 4: APPLY the revisions — produce a REAL revised manuscript ══
+      // These steps (phase: 'revision_apply') actually rewrite the manuscript
+      // instead of just analyzing it. Without these steps, users got 21
+      // analysis reports and no revised book.
+      {
+        label: 'Apply macro revisions (full manuscript rewrite)',
+        skill: 'revise',
+        taskType: 'revision',
+        phase: 'revision_apply',
+        promptTemplate: `Rewrite the FULL uploaded manuscript applying the Pass 1 (macro/structural) revision notes from prior steps.
+
+**Manuscript**: "{{title}}" — {{description}}
+
+You have access to the FULL uploaded manuscript plus the analyses from 7 prior macro passes covering plot structure, pacing, character arcs, theme, world-building, stakes, and subplots.
+
+## YOUR TASK
+Output the COMPLETE revised manuscript — every chapter, in full — with the macro/structural fixes applied:
+
+- Tighten plot structure where analysis flagged weakness
+- Fix pacing sags; cut or combine chapters only if analysis clearly said to
+- Strengthen character arcs; add missing growth beats
+- Reinforce theme where it drifted
+- Resolve continuity/world-building contradictions
+- Escalate stakes where they plateaued
+- Close dropped subplot threads
+
+## CRITICAL OUTPUT RULES
+1. Output the ENTIRE revised manuscript, start to finish. Don't summarize. Don't say "Chapter 1 revised version would go here".
+2. Preserve chapter structure. Start each chapter with "# Chapter N: Title" or "## Chapter N".
+3. Write actual prose, not bullet points or change logs.
+4. Keep the author's voice. Only change what the analysis specifically flagged.
+5. If the manuscript is very long and you run out of space, stop at a chapter boundary — the system will ask you to continue from there.
+6. Do NOT include any meta-commentary like "I revised this by...". Output ONLY the manuscript itself.`,
+      },
+      {
+        label: 'Apply scene-level revisions (full manuscript rewrite)',
+        skill: 'revise',
+        taskType: 'revision',
+        phase: 'revision_apply',
+        promptTemplate: `Take the Pass-1-revised manuscript from the previous step and rewrite it AGAIN, this time applying Pass 2 (scene-level) revision notes.
+
+**Manuscript**: "{{title}}" — {{description}}
+
+## YOUR INPUT
+- The Pass-1-revised manuscript from the previous "Apply macro revisions" step (in your context above)
+- 7 scene-level analyses covering dialogue, show-vs-tell, scene tension, transitions, emotional beats, sensory detail, info-dumps
+
+## YOUR TASK
+Rewrite every chapter applying scene-level fixes:
+
+- Tighten and distinctify dialogue; eliminate "as you know Bob" exposition
+- Convert telling to showing for emotional beats the analysis flagged
+- Give each scene a clear goal/obstacle/stakes/outcome
+- Smooth the roughest transitions (flagged in prior analysis)
+- Add sensory detail to pivotal scenes
+- Break up info-dumps into action/dialogue/subtext
+
+## CRITICAL OUTPUT RULES
+1. Output the ENTIRE revised manuscript, not just flagged sections.
+2. Preserve chapter structure.
+3. Do NOT regress Pass-1 improvements. Keep the macro fixes from the prior step.
+4. If you run out of space, stop at a chapter boundary — the system will continue from there.
+5. Output ONLY the manuscript itself — no commentary.`,
+      },
+      {
+        label: 'Apply line-level revisions (full manuscript rewrite)',
+        skill: 'revise',
+        taskType: 'final_edit',
+        phase: 'revision_apply',
+        promptTemplate: `Take the Pass-2-revised manuscript from the previous step and rewrite it ONE MORE TIME, this time applying Pass 3 (line-level / copy-edit) polish.
+
+**Manuscript**: "{{title}}" — {{description}}
+
+## YOUR INPUT
+- The Pass-2-revised manuscript from the previous step (in your context above)
+- 5 line-level analyses covering copy edits, line edits, repetition, crutch words, sensitivity
+
+## YOUR TASK
+Produce the FINAL polished manuscript by applying line-level fixes:
+
+- Fix grammar, punctuation, spelling, homophone errors
+- Tighten prose rhythm; vary sentence length
+- Strengthen weak verbs; cut redundant phrases
+- Remove crutch words flagged in prior analysis (just, really, very, actually, suddenly, started to, began to, felt, seemed)
+- Cut overused adverbs; keep the ones that earn their place
+- Address sensitivity concerns (where flagged) without losing the author's voice
+
+## CRITICAL OUTPUT RULES
+1. Output the ENTIRE polished manuscript.
+2. Preserve all Pass-1 and Pass-2 improvements.
+3. Preserve chapter structure with "# Chapter N: Title" or "## Chapter N" headers.
+4. If you run out of space, stop at a chapter boundary — the system will continue.
+5. This is the FINAL version. Make it publishable.
+6. Output ONLY the manuscript — no commentary, no change logs.`,
       },
     ],
   },
@@ -1412,7 +1511,7 @@ Description: ${description}`;
 
     if (template) {
       console.log(`  Project "${title}": using template "${type}" with ${template.steps.length} steps`);
-      steps = template.steps.map((s, i) => ({
+      steps = template.steps.map((s: any, i) => ({
         id: `${id}-step-${i + 1}`,
         label: s.label,
         skill: s.skill,
@@ -1420,6 +1519,10 @@ Description: ${description}`;
         taskType: s.taskType,
         prompt: this.expandTemplate(s.promptTemplate, { title, description, ...context }),
         status: 'pending' as const,
+        // Preserve optional metadata from the template (phase, wordCountTarget, chapterNumber)
+        ...(s.phase ? { phase: s.phase } : {}),
+        ...(s.wordCountTarget ? { wordCountTarget: s.wordCountTarget } : {}),
+        ...(s.chapterNumber ? { chapterNumber: s.chapterNumber } : {}),
       }));
     } else {
       // Custom project — single step with the user's description
