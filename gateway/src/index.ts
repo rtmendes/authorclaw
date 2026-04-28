@@ -866,11 +866,18 @@ class AuthorClawGateway {
         }));
 
     // ── Call AI ──
+    // Auto-elevate reasoning effort for high-stakes task types (continuity
+    // check, final edit, revision-apply). For Claude/Gemini/DeepSeek-reasoner/
+    // OpenAI o-series this triggers extra hidden thinking; ignored on Ollama
+    // and gpt-4o-class models.
+    const { getRecommendedThinking } = await import('./ai/router.js');
+    const thinking = getRecommendedThinking(taskType);
     try {
       const response = await this.aiRouter.complete({
         provider: provider.id,
         system: systemPrompt,
         messages,
+        ...(thinking ? { thinking } : {}),
       });
 
       if (!skipHistory) {
@@ -929,6 +936,7 @@ class AuthorClawGateway {
             provider: fallback.id,
             system: systemPrompt,
             messages,
+            ...(thinking ? { thinking } : {}),
           });
           if (!skipHistory) {
             history.push({
@@ -1009,7 +1017,7 @@ class AuthorClawGateway {
       refContent += `Auto-generated on startup — ${catalog.length} skills loaded\n`;
       refContent += '═'.repeat(60) + '\n\n';
 
-      for (const category of ['core', 'author', 'marketing', 'premium']) {
+      for (const category of ['core', 'author', 'marketing', 'premium', 'ops']) {
         const skills = byCategory[category];
         if (!skills || skills.length === 0) continue;
 

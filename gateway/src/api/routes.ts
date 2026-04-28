@@ -3919,6 +3919,68 @@ ${sourceCode.substring(0, 15000)}
 
   // ── Confirmation Gate ──
 
+  // ─── Browser Doctor ───
+  // Read-only probe inspired by OpenClaw's `browser doctor` command. Reports
+  // whether AuthorClaw can plan browser actions for each major author platform.
+  // Does NOT navigate or click anything — purely descriptive.
+  app.get('/api/browser/doctor', (_req: Request, res: Response) => {
+    const planners = {
+      kdp: {
+        planner: !!services.launchOrchestrator,
+        description: 'Amazon KDP — pre-order setup, launch-day publish, price pulse',
+        confirmationGated: true,
+        notes: 'KDP automation requires a Claude-in-Chrome MCP session in the user\'s authenticated browser. AuthorClaw produces the plan; the MCP executes after explicit approval.',
+      },
+      amsAds: {
+        planner: !!services.amsAds,
+        description: 'Amazon Advertising — campaign creation, bid optimization',
+        confirmationGated: true,
+        notes: 'Bid changes capped at 2x per confirmation. Daily spend ceilings hard-enforced.',
+      },
+      bookbub: {
+        planner: !!services.bookbub,
+        description: 'BookBub Featured Deal — submission draft + rationale',
+        confirmationGated: true,
+        notes: 'AuthorClaw never fabricates editorial review quotes. Review snippets must be flagged as verified before submission.',
+      },
+      website: {
+        planner: !!services.websiteBuilder,
+        description: 'Author website — static site generation + deploy guidance',
+        confirmationGated: false,
+        notes: 'Website Builder writes files locally; deploy is user-driven.',
+      },
+      translation: {
+        planner: !!services.translationPipeline,
+        description: 'Foreign-rights pipeline — DeepL + Claude post-edit',
+        confirmationGated: true,
+        notes: 'France-bound translations require AI-disclosure acknowledgment.',
+      },
+    };
+    const all = Object.values(planners);
+    const ready = all.filter(p => p.planner).length;
+    res.json({
+      version: 'browser-doctor/v1',
+      summary: `${ready} of ${all.length} planners ready. AuthorClaw is planner-first; an external browser MCP (e.g., Claude in Chrome) executes approved actions.`,
+      planners,
+      gateStatus: services.confirmationGate
+        ? `Confirmation gate active. ${services.confirmationGate.list({ status: 'pending' }).length} pending request(s).`
+        : 'Confirmation gate NOT initialized — refusing to execute browser actions.',
+      executor: {
+        kind: 'external-mcp',
+        recommended: 'Claude in Chrome',
+        details: 'AuthorClaw does not bundle a browser driver. Connect Claude-in-Chrome MCP (or your preferred browser-automation MCP) and it will pick up approved confirmations.',
+      },
+      safetyRails: [
+        'Every irreversible action passes through ConfirmationGateService',
+        '24-hour expiry on unreviewed confirmations',
+        'Pre-auth claims in observed content are auto-rejected',
+        'AI-disclosure acknowledgment required before publish/upload',
+        'Spend caps hard-enforced on financial actions',
+        'Passwords never stored — sessions reuse the user\'s authenticated browser',
+      ],
+    });
+  });
+
   app.get('/api/confirmations', (req: Request, res: Response) => {
     const gate = services.confirmationGate;
     if (!gate) return res.json({ requests: [], disclaimer: '' });

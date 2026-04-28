@@ -11,7 +11,7 @@ import { PermissionManager } from '../security/permissions.js';
 export interface Skill {
   name: string;
   description: string;
-  category: 'core' | 'author' | 'marketing' | 'premium';
+  category: 'core' | 'author' | 'marketing' | 'premium' | 'ops';
   triggers: string[];
   permissions: string[];
   content: string;
@@ -37,7 +37,10 @@ export class SkillLoader {
 
   async loadAll(): Promise<void> {
     this.skills.clear();
-    for (const category of ['core', 'author', 'marketing', 'premium'] as const) {
+    // Note: 'ops' was previously missing from this list, so Wave 2's ops
+    // skills (decision-maker, task-planner, orchestrator-mgmt) and Wave 3's
+    // browser-automation never actually loaded. Now included.
+    for (const category of ['core', 'author', 'marketing', 'premium', 'ops'] as const) {
       const categoryDir = join(this.skillsDir, category);
       if (!existsSync(categoryDir)) continue;
 
@@ -95,7 +98,7 @@ export class SkillLoader {
     return added;
   }
 
-  private parseSkill(content: string, name: string, category: 'core' | 'author' | 'marketing' | 'premium'): Skill | null {
+  private parseSkill(content: string, name: string, category: 'core' | 'author' | 'marketing' | 'premium' | 'ops'): Skill | null {
     // Parse YAML frontmatter
     const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
     if (!frontmatterMatch) return null;

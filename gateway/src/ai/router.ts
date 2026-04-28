@@ -30,6 +30,23 @@ interface CompletionRequest {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   maxTokens?: number;
   temperature?: number;
+  /**
+   * Reasoning effort. When set, the router instructs the underlying provider
+   * to spend more model time on chain-of-thought before answering — useful for
+   * continuity checks, final edits, and structural revision passes where
+   * shallow responses produce noticeably worse output.
+   *
+   * Inspired by OpenClaw 2026.4.24/25's thinking-budget knobs.
+   *
+   * Provider mapping:
+   *   Claude Sonnet/Opus  → thinking.budget_tokens (1024 / 4096 / 16384)
+   *   Gemini 2.5 family   → generationConfig.thinkingConfig.thinkingBudget
+   *   DeepSeek            → swaps to deepseek-reasoner model
+   *   OpenAI o-series     → reasoning.effort (low/medium/high)
+   *   OpenAI gpt-4o etc.  → silently ignored (no reasoning support)
+   *   Ollama              → silently ignored
+   */
+  thinking?: 'low' | 'medium' | 'high';
 }
 
 interface CompletionResponse {
@@ -64,6 +81,30 @@ const TIER_ROUTING: Record<TaskTier, string[]> = {
   mid:     ['gemini', 'deepseek', 'claude', 'openai', 'ollama'],
   premium: ['claude', 'openai', 'gemini', 'deepseek', 'ollama'],
 };
+
+/**
+ * Default reasoning effort per task type. Tasks that benefit most from deep
+ * thinking get auto-elevated; everything else lets the provider default apply.
+ *
+ * - 'consistency'   — continuity / cross-chapter checks need careful reasoning
+ * - 'final_edit'    — last polish pass; best output quality
+ * - 'revision'      — structural / scene-level revision
+ * - 'book_bible'    — world consistency tracking
+ *
+ * Inspired by OpenClaw 2026.4.24/25's per-task thinking budgets.
+ */
+const TASK_REASONING: Record<string, 'low' | 'medium' | 'high'> = {
+  consistency: 'high',
+  final_edit:  'high',
+  revision:    'medium',
+  book_bible:  'medium',
+  outline:     'medium',
+};
+
+/** Public helper: get the recommended reasoning effort for a task type. */
+export function getRecommendedThinking(taskType: string): 'low' | 'medium' | 'high' | undefined {
+  return TASK_REASONING[taskType];
+}
 
 // ═══════════════════════════════════════════════════════════
 // AI Router
@@ -411,6 +452,23 @@ export class AIRouter {
     request: CompletionRequest
   ): Promise<CompletionResponse> {
     const apiKey = await this.vault.get('gemini_api_key');
+    // Reasoning effort → Gemini thinkingBudget (works on Gemini 2.5 Pro/Flash;
+    // ignored / no-op on older models). thinkingBudget is in tokens.
+    // -1 = "model decides" (Google's recommendation for adaptive thinking).
+    const thinkingBudget = request.thinking
+      ? { low: 1024, medium: 4096, high: 16384 }[request.thinking]
+      : null;
+    const generationConfig: any = {
+      temperature: request.temperature ?? 0.7,
+      maxOutputTokens: request.maxTokens ?? provider.maxTokens,
+    };
+    if (thinkingBudget) {
+      generationConfig.thinkingConfig = {
+        thinkingBudget,
+        includeThoughts: false, // We don't need the raw CoT in our response
+      };
+    }
+
     const response = await fetch(
       `${provider.endpoint}/models/${provider.model}:generateContent?key=${apiKey}`,
       {
@@ -422,10 +480,7 @@ export class AIRouter {
             role: m.role === 'assistant' ? 'model' : 'user',
             parts: [{ text: m.content }],
           })),
-          generationConfig: {
-            temperature: request.temperature ?? 0.7,
-            maxOutputTokens: request.maxTokens ?? provider.maxTokens,
-          },
+          generationConfig,
         }),
       }
     );
@@ -466,6 +521,30 @@ export class AIRouter {
     request: CompletionRequest
   ): Promise<CompletionResponse> {
     const apiKey = await this.vault.get('anthropic_api_key');
+    // Reasoning effort → Claude thinking budget (tokens spent on hidden CoT).
+    // Anthropic requires temperature=1 and max_tokens > thinking budget.
+    const thinkingBudget = request.thinking
+      ? { low: 1024, medium: 4096, high: 16384 }[request.thinking]
+      : null;
+    const maxTokens = request.maxTokens ?? provider.maxTokens;
+    const effectiveMaxTokens = thinkingBudget
+      ? Math.max(maxTokens, thinkingBudget + 2048)
+      : maxTokens;
+
+    const body: any = {
+      model: provider.model,
+      max_tokens: effectiveMaxTokens,
+      system: request.system,
+      messages: request.messages,
+    };
+    if (thinkingBudget) {
+      body.thinking = { type: 'enabled', budget_tokens: thinkingBudget };
+      // Anthropic requires temperature=1 when thinking is enabled.
+      body.temperature = 1;
+    } else if (typeof request.temperature === 'number') {
+      body.temperature = request.temperature;
+    }
+
     const response = await fetch(`${provider.endpoint}/messages`, {
       method: 'POST',
       headers: {
@@ -473,12 +552,7 @@ export class AIRouter {
         'x-api-key': apiKey!,
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify({
-        model: provider.model,
-        max_tokens: request.maxTokens ?? provider.maxTokens,
-        system: request.system,
-        messages: request.messages,
-      }),
+      body: JSON.stringify(body),
     });
 
     const data = await response.json() as any;
@@ -486,7 +560,14 @@ export class AIRouter {
       console.error(`  ✗ Claude API error: ${data.error.message || JSON.stringify(data.error)}`);
       throw new Error(`Claude API error: ${data.error.message || 'Unknown error'}`);
     }
-    const text = data.content?.[0]?.text || '';
+    // When thinking is enabled, content array contains a 'thinking' block
+    // followed by one or more 'text' blocks. Extract only the text — the
+    // hidden reasoning is internal to the model.
+    const blocks = Array.isArray(data.content) ? data.content : [];
+    const text = blocks
+      .filter((b: any) => b?.type === 'text' && typeof b.text === 'string')
+      .map((b: any) => b.text)
+      .join('') || '';
     const inputTokens = data.usage?.input_tokens || 0;
     const outputTokens = data.usage?.output_tokens || 0;
     return {
@@ -507,21 +588,47 @@ export class AIRouter {
     const apiKey = await this.vault.get(vaultKey);
     const endpoint = `${provider.endpoint}/chat/completions`;
 
+    // ── Reasoning effort handling — provider-specific ──
+    let effectiveModel = provider.model;
+    let reasoningEffort: 'low' | 'medium' | 'high' | null = null;
+
+    if (request.thinking) {
+      if (provider.id === 'deepseek') {
+        // DeepSeek: swap to the dedicated reasoner endpoint model.
+        // It accepts the same Chat Completions API but produces a reasoning_content block.
+        effectiveModel = 'deepseek-reasoner';
+      } else if (provider.id === 'openai') {
+        // OpenAI: only the o-series (o1, o3, o4, gpt-5*) supports reasoning_effort.
+        // gpt-4o silently ignores it. Send the param only when the model name suggests support.
+        const isReasoningModel = /^(o[1-9]|o\d+|gpt-5|gpt-5\.\d+)/i.test(provider.model);
+        if (isReasoningModel) reasoningEffort = request.thinking;
+      }
+    }
+
+    const body: any = {
+      model: effectiveModel,
+      messages: [
+        { role: 'system', content: request.system },
+        ...request.messages,
+      ],
+      max_tokens: request.maxTokens ?? provider.maxTokens,
+      temperature: request.temperature ?? 0.7,
+    };
+    if (reasoningEffort) {
+      // OpenAI reasoning models reject max_tokens (use max_completion_tokens) and ignore temperature.
+      delete body.max_tokens;
+      delete body.temperature;
+      body.max_completion_tokens = request.maxTokens ?? provider.maxTokens;
+      body.reasoning_effort = reasoningEffort;
+    }
+
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model: provider.model,
-        messages: [
-          { role: 'system', content: request.system },
-          ...request.messages,
-        ],
-        max_tokens: request.maxTokens ?? provider.maxTokens,
-        temperature: request.temperature ?? 0.7,
-      }),
+      body: JSON.stringify(body),
     });
 
     const data = await response.json() as any;
