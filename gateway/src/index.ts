@@ -40,6 +40,9 @@ import { ProjectEngine } from './services/projects.js';
 import { PersonaService } from './services/personas.js';
 import { ContextEngine } from './services/context-engine.js';
 import { MemorySearchService } from './services/memory-search.js';
+import { UserModelService } from './services/user-model.js';
+import { CronSchedulerService } from './services/cron-scheduler.js';
+import { AutoSkillService } from './services/auto-skill.js';
 import { LessonStore } from './services/lessons.js';
 import { PreferenceStore } from './services/preferences.js';
 import { OrchestratorService } from './services/orchestrator.js';
@@ -109,6 +112,9 @@ class AuthorClawGateway {
   private projectEngine!: ProjectEngine;
   private contextEngine!: ContextEngine;
   private memorySearch!: MemorySearchService;
+  private userModel!: UserModelService;
+  private cronScheduler!: CronSchedulerService;
+  private autoSkill!: AutoSkillService;
   private lessons!: LessonStore;
   private preferences!: PreferenceStore;
   private orchestrator!: OrchestratorService;
@@ -361,6 +367,78 @@ class AuthorClawGateway {
     await this.preferences.initialize();
     const prefCount = Object.keys(this.preferences.getAll()).length;
     console.log(`  ✓ Preferences: ${prefCount} tracked`);
+
+    // ── Phase 6g2: User Model (Honcho-style dialectic, simplified) ──
+    // Tracks behavioral observations + per-persona breakdown + periodically
+    // consolidates them into an LLM-generated narrative profile.
+    this.userModel = new UserModelService(join(ROOT_DIR, 'workspace'));
+    this.userModel.setAI(
+      (req) => this.aiRouter.complete(req),
+      (taskType: string) => this.aiRouter.selectProvider(taskType),
+    );
+    await this.userModel.initialize();
+    const um = this.userModel.getSnapshot();
+    console.log(`  ✓ User model: ${um?.observationCount || 0} observations${um?.narrative.confidence ? `, narrative confidence ${(um.narrative.confidence * 100).toFixed(0)}%` : ''}`);
+
+    // ── Phase 6g3: Cron Scheduler (Hermes-inspired) ──
+    this.cronScheduler = new CronSchedulerService(join(ROOT_DIR, 'workspace'));
+    await this.cronScheduler.initialize();
+    // Register built-in handlers — user-created jobs reference these by name.
+    this.cronScheduler.registerHandler('reindex-memory-search', async () => {
+      if (!this.memorySearch?.isAvailable()) return { success: false, message: 'Search unavailable' };
+      const r = await this.memorySearch.reindexAll();
+      return { success: true, message: `Indexed ${r.indexed}, skipped ${r.skipped}` };
+    });
+    this.cronScheduler.registerHandler('consolidate-user-model', async () => {
+      const snap = await this.userModel.maybeConsolidate(true);
+      return { success: !!snap, message: snap ? `Narrative refreshed (confidence ${(snap.narrative.confidence * 100).toFixed(0)}%)` : 'No AI provider available' };
+    });
+    this.cronScheduler.registerHandler('heartbeat-broadcast', async (payload) => {
+      const message = String(payload?.message || 'Scheduled check-in.');
+      try { this.io.emit('cron-broadcast', { message, at: new Date().toISOString() }); } catch {}
+      return { success: true, message: `Broadcast: ${message.substring(0, 80)}` };
+    });
+    this.cronScheduler.start();
+    console.log(`  ✓ Cron scheduler: ${this.cronScheduler.list().length} job(s) scheduled, ${this.cronScheduler.listHandlers().length} handlers`);
+
+    // ── Phase 6g4: Auto-Skill Creator ──
+    // Drafts SKILL.md files from completed projects. Drafts go to
+    // skills/_drafts and require user approval before promotion to ops/.
+    this.autoSkill = new AutoSkillService(ROOT_DIR);
+    this.autoSkill.setAI(
+      (req) => this.aiRouter.complete(req),
+      (taskType: string) => this.aiRouter.selectProvider(taskType),
+    );
+    this.autoSkill.setExistingSkillsLookup(() => {
+      const names = new Set<string>();
+      for (const s of this.skills?.getSkillCatalog() || []) names.add(s.name);
+      return names;
+    });
+    await this.autoSkill.initialize();
+    const drafts = this.autoSkill.list({ status: 'pending_review' });
+    console.log(`  ✓ Auto-skill drafter: ${drafts.length} draft(s) pending review`);
+
+    // ── Wire project-completion hooks ──
+    // When a project finishes, observe the event for the user model AND
+    // give the auto-skill drafter a chance to capture the workflow.
+    this.projectEngine.onProjectCompleted((project: any) => {
+      // User-model observation
+      try {
+        this.userModel?.observe({
+          type: 'project_completed',
+          metadata: { projectId: project.id, type: project.type, stepCount: project.steps?.length || 0 },
+          personaId: project.personaId || this.memory.getActivePersonaId(),
+        });
+      } catch { /* never block completion */ }
+      // Auto-skill draft (fire-and-forget; AI may take a few seconds)
+      this.autoSkill?.maybeDraftFromProject({
+        id: project.id,
+        type: project.type,
+        title: project.title,
+        description: project.description,
+        steps: project.steps || [],
+      }).catch(err => console.error('[auto-skill] draft error:', err));
+    });
 
     // ── Phase 6h: Orchestrator (script manager) ──
     this.orchestrator = new OrchestratorService(join(ROOT_DIR, 'workspace'));
@@ -914,6 +992,19 @@ class AuthorClawGateway {
       }
 
       await this.memory.process(content, response.text);
+
+      // ── User model: observe this turn ──
+      // Cheap (just appends to a ring buffer). Periodic consolidation runs
+      // separately via cron or manually via maybeConsolidate().
+      try {
+        this.userModel?.observe({
+          type: 'message_sent',
+          metadata: { length: content.length },
+          personaId: this.memory.getActivePersonaId(),
+        });
+        // Trigger consolidation if threshold reached. Fire-and-forget.
+        this.userModel?.maybeConsolidate().catch(() => {});
+      } catch { /* observation failures should never block messaging */ }
       this.costs.record(provider.id, response.tokensUsed, response.estimatedCost);
       this.heartbeat.recordActivity('message', { channel });
 
@@ -1142,6 +1233,16 @@ class AuthorClawGateway {
       }
     }
 
+    // ── User Model (Honcho-style consolidated narrative + metrics) ──
+    // Deeper than preferences: tells the AI what kind of author this user
+    // IS based on their pattern of work, not just stated likes/dislikes.
+    if (this.userModel) {
+      const umContext = this.userModel.buildContext(400);
+      if (umContext) {
+        prompt += umContext + '\n\n';
+      }
+    }
+
     prompt += '# Your Capabilities\n\n';
     prompt += 'You are a fully autonomous writing agent. You CAN and SHOULD:\n';
     prompt += '- Write entire chapters, scenes, or complete outlines when asked\n';
@@ -1239,6 +1340,9 @@ class AuthorClawGateway {
       personas: this.personas,
       contextEngine: this.contextEngine,
       memorySearch: this.memorySearch,
+      userModel: this.userModel,
+      cronScheduler: this.cronScheduler,
+      autoSkill: this.autoSkill,
       lessons: this.lessons,
       preferences: this.preferences,
       orchestrator: this.orchestrator,

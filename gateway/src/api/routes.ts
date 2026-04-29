@@ -4065,6 +4065,138 @@ ${sourceCode.substring(0, 15000)}
     res.json({ personaId: services.memory.getActivePersonaId() });
   });
 
+  // ═══════════════════════════════════════════════════════════
+  // User Model (Honcho-inspired dialectic profile)
+  // ═══════════════════════════════════════════════════════════
+
+  app.get('/api/user-model', (_req: Request, res: Response) => {
+    if (!services.userModel) return res.status(503).json({ error: 'User model not initialized' });
+    res.json({ snapshot: services.userModel.getSnapshot() });
+  });
+
+  app.post('/api/user-model/consolidate', async (_req: Request, res: Response) => {
+    if (!services.userModel) return res.status(503).json({ error: 'User model not initialized' });
+    try {
+      const snap = await services.userModel.maybeConsolidate(true);
+      if (!snap) return res.status(503).json({ error: 'No AI provider available for consolidation' });
+      res.json({ snapshot: snap });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'Consolidation failed' });
+    }
+  });
+
+  app.delete('/api/user-model', async (_req: Request, res: Response) => {
+    if (!services.userModel) return res.status(503).json({ error: 'User model not initialized' });
+    await services.userModel.reset();
+    res.json({ success: true });
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  // Cron Scheduler
+  // ═══════════════════════════════════════════════════════════
+
+  app.get('/api/cron', (_req: Request, res: Response) => {
+    if (!services.cronScheduler) return res.status(503).json({ error: 'Cron not initialized' });
+    res.json({
+      jobs: services.cronScheduler.list(),
+      handlers: services.cronScheduler.listHandlers(),
+    });
+  });
+
+  app.post('/api/cron', async (req: Request, res: Response) => {
+    if (!services.cronScheduler) return res.status(503).json({ error: 'Cron not initialized' });
+    const { name, schedule, handler, payload, enabled } = req.body || {};
+    if (!name || !schedule || !handler) {
+      return res.status(400).json({ error: 'name, schedule, handler required' });
+    }
+    try {
+      const job = await services.cronScheduler.createJob({ name, schedule, handler, payload, enabled });
+      res.json({ job });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'Job creation failed' });
+    }
+  });
+
+  app.patch('/api/cron/:id', async (req: Request, res: Response) => {
+    if (!services.cronScheduler) return res.status(503).json({ error: 'Cron not initialized' });
+    try {
+      const job = await services.cronScheduler.updateJob(req.params.id, req.body || {});
+      if (!job) return res.status(404).json({ error: 'Job not found' });
+      res.json({ job });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'Update failed' });
+    }
+  });
+
+  app.delete('/api/cron/:id', async (req: Request, res: Response) => {
+    if (!services.cronScheduler) return res.status(503).json({ error: 'Cron not initialized' });
+    const removed = await services.cronScheduler.deleteJob(req.params.id);
+    res.json({ success: removed });
+  });
+
+  app.post('/api/cron/:id/run-now', async (req: Request, res: Response) => {
+    if (!services.cronScheduler) return res.status(503).json({ error: 'Cron not initialized' });
+    const result = await services.cronScheduler.runNow(req.params.id);
+    res.json(result);
+  });
+
+  app.post('/api/cron/validate', async (req: Request, res: Response) => {
+    const { validateCronExpression } = await import('../services/cron-scheduler.js');
+    const { schedule } = req.body || {};
+    if (!schedule) return res.status(400).json({ error: 'schedule required' });
+    res.json(validateCronExpression(schedule));
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  // Auto-Skill Drafts (review before promotion to skills/ops/)
+  // ═══════════════════════════════════════════════════════════
+
+  app.get('/api/skill-drafts', (req: Request, res: Response) => {
+    if (!services.autoSkill) return res.status(503).json({ error: 'Auto-skill not initialized' });
+    const status = req.query.status as any;
+    res.json({ drafts: services.autoSkill.list(status ? { status } : undefined) });
+  });
+
+  app.get('/api/skill-drafts/:id', (req: Request, res: Response) => {
+    if (!services.autoSkill) return res.status(503).json({ error: 'Auto-skill not initialized' });
+    const draft = services.autoSkill.get(req.params.id);
+    if (!draft) return res.status(404).json({ error: 'Draft not found' });
+    res.json({ draft });
+  });
+
+  app.post('/api/skill-drafts/:id/accept', async (req: Request, res: Response) => {
+    if (!services.autoSkill) return res.status(503).json({ error: 'Auto-skill not initialized' });
+    const category = req.body?.category;
+    const result = await services.autoSkill.accept(req.params.id, category ? { category } : {});
+    if (!result.success) return res.status(400).json(result);
+    res.json(result);
+  });
+
+  app.post('/api/skill-drafts/:id/reject', async (req: Request, res: Response) => {
+    if (!services.autoSkill) return res.status(503).json({ error: 'Auto-skill not initialized' });
+    const result = await services.autoSkill.reject(req.params.id);
+    if (!result.success) return res.status(400).json(result);
+    res.json(result);
+  });
+
+  /** Manually request a draft from any completed project. */
+  app.post('/api/projects/:id/draft-skill', async (req: Request, res: Response) => {
+    if (!services.autoSkill) return res.status(503).json({ error: 'Auto-skill not initialized' });
+    const engine = gateway.getProjectEngine?.();
+    const project = engine?.getProject(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    try {
+      const draft = await services.autoSkill.draftFromProject({
+        id: project.id, type: project.type, title: project.title,
+        description: project.description, steps: project.steps,
+      }, 'user-request');
+      if (!draft) return res.status(400).json({ error: 'Draft generation failed (AI provider issue or no completed steps)' });
+      res.json({ draft });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'Draft failed' });
+    }
+  });
+
   // ─── Browser Doctor ───
   // Read-only probe inspired by OpenClaw's `browser doctor` command. Reports
   // whether AuthorClaw can plan browser actions for each major author platform.

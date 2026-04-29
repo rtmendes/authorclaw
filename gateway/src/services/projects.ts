@@ -1631,9 +1631,24 @@ Description: ${description}`;
     if (remaining.length === 0) {
       project.status = 'completed';
       project.completedAt = new Date().toISOString();
+      // Fire the completion hook (used by AutoSkill + UserModel observation).
+      // Fire-and-forget so persistence isn't blocked by hook latency.
+      try {
+        for (const fn of this.completionHooks) {
+          Promise.resolve(fn(project)).catch(err => console.error('[project-completion-hook] error:', err));
+        }
+      } catch { /* hook crashes never block completeStep */ }
     }
     this.persistState();
     return null;
+  }
+
+  /** Callbacks invoked when a project transitions to 'completed' status. */
+  private completionHooks: Array<(project: Project) => void | Promise<void>> = [];
+
+  /** Register a callback fired on project completion. */
+  onProjectCompleted(fn: (project: Project) => void | Promise<void>): void {
+    this.completionHooks.push(fn);
   }
 
   /**
