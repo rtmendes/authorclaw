@@ -37,6 +37,14 @@
     "maxMemoryEntries": 200,
     "autoSummarize": true
   },
+  "branding": {
+    "footerLinks": {
+      "website":  "https://www.getwritingsecrets.com",
+      "youtube":  "https://www.youtube.com/@WritingSecrets",
+      "substack": "https://writingsecrets.substack.com",
+      "kofi":     "https://ko-fi.com/writingsecrets/shop"
+    }
+  },
   "heartbeat": {
     "intervalMinutes": 15,
     "dailyWordGoal": 1000,

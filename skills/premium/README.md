@@ -1,48 +1,75 @@
-# AuthorClaw Premium Skills Bundle
+# Premium Skills (Bring Your Own Tools)
 
-This directory is where purchased premium skills are installed.
+This directory is where AuthorClaw looks for premium skills that you've added
+yourself. Drop a folder containing a `SKILL.md` here and AuthorClaw auto-loads
+it on startup.
 
-## Get the Premium Bundle
+## How to expand AuthorClaw with the Writing Secrets toolset
 
-The **AuthorClaw Premium Skills Bundle** includes **10 premium skills** in one package:
+Writing Secrets sells stand-alone author tools (Book Bible Engine, Workflow
+Engine, Manuscript Autopsy, Style Clone Pro, etc.). AuthorClaw can plug into
+any of them in two ways:
 
-- **Ghostwriter Pro** — Scene generation, pacing analysis, tension mapping, deep write mode
-- **Series Architect** — Multi-book series planning, continuity engine, thread tracker
-- **Book Launch Machine** — 60-day book launch automation, ad copy factory, email sequences
-- **First Chapter Hook** — Hook scoring, opening line workshop, Look Inside optimizer
-- **Comp Title Finder** — Comparable title discovery, market positioning, category strategy
-- **Dictation Cleanup** — Speech-to-text cleanup with 3 intensity levels, voice-aware
-- **Sensitivity Reader** — Representation review, cultural accuracy, bias detection
-- **Read Aloud** — Free TTS manuscript reader with ear-edit revision workflow
-- **Narrative Voice Coach** — 47-marker voice analysis, consistency checking, style coaching
-- **Writing Secrets Integration** — Bridges for Book Bible Engine, Workflow Engine, and StyleClone Pro
+### Option 1 — Place the tool folder next to AuthorClaw
 
-**Purchase:** [Ko-Fi Store](https://ko-fi.com/s/4e24f1dfa5)
+If you've purchased a Writing Secrets tool that ships as a folder of files
+(workflow JSONs, book bible templates, prompt libraries, etc.), drop that
+folder here:
 
-## Installation
+```
+<wherever AuthorClaw lives>/
+├── authorclaw/
+└── Author OS/             ← your purchased tools live here
+    ├── Author Workflow Engine/
+    ├── Book Bible Engine/
+    ├── Manuscript Autopsy/
+    ├── AI Author Library/
+    └── Creator Asset Suite/
+```
 
-1. Purchase the Premium Skills Bundle from Ko-Fi
-2. Download and extract the zip file
-3. Copy the skill folders into this directory:
-   ```
-   skills/premium/ghostwriter-pro/SKILL.md
-   skills/premium/series-architect/SKILL.md
-   skills/premium/book-launch-machine/SKILL.md
-   skills/premium/first-chapter-hook/SKILL.md
-   skills/premium/comp-title-finder/SKILL.md
-   skills/premium/dictation-cleanup/SKILL.md
-   skills/premium/sensitivity-reader/SKILL.md
-   skills/premium/read-aloud/SKILL.md
-   skills/premium/narrative-voice-coach/SKILL.md
-   skills/premium/writing-secrets-integration/SKILL.md
-   ```
-4. Restart AuthorClaw
-5. Skills auto-load and appear with a ★ in the console log
+AuthorClaw auto-discovers any of these on startup and **auto-generates skills
+for each tool** (`author-os-workflow`, `author-os-book-bible`, etc.) so you can
+use them by name in chat.
+
+### Option 2 — Expose any tool via a Skill folder
+
+If you've got a tool, prompt library, or template set you want AuthorClaw to
+treat as a skill, drop a `SKILL.md` in this directory:
+
+```
+skills/premium/
+└── my-cool-tool/
+    └── SKILL.md
+```
+
+AuthorClaw will load it on next startup. The `skill-acquisition` skill can also
+help you draft a `SKILL.md` for an existing tool — just say "create a skill
+for [tool name and description]".
+
+## Where to buy author tools
+
+[**Writing Secrets Ko-Fi store**](https://ko-fi.com/writingsecrets/shop) —
+one-off purchases of standalone author tools (Book Bible Engine, Workflow
+Engine, Manuscript Autopsy, Style Clone Pro, and others). These work
+standalone *and* plug into AuthorClaw via Option 1 or Option 2 above.
+
+[**getwritingsecrets.com**](https://www.getwritingsecrets.com) — guides,
+prompts, frameworks, and the Writing Secrets newsletter.
 
 ## Verification
 
-After restart, check the dashboard or call:
+After adding a tool, restart AuthorClaw and check the startup log. You'll see:
+
 ```
-GET http://localhost:3847/api/status
+✓ Author OS: N tools found at <path>
+✓ Author OS skills auto-registered: M skill(s)
 ```
-Premium skills appear under `skills.premium` in the response.
+
+Or, for skills you dropped directly into `skills/premium/`:
+
+```
+★ Premium skill loaded: <skill-name>
+```
+
+You can also check `workspace/SKILLS.txt` (auto-generated on startup) for the
+full list of skills currently active.

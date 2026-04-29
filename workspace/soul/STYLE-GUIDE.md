@@ -1,59 +1,52 @@
-# Style Guide — OmegaClaw Tech-Thriller
+# Style Guide
+
+*This file is your project-level style guide. AuthorClaw reads it before drafting
+or revising prose so the output matches how you write.*
+
+*Edit this file (or replace it entirely) with your own rules. Below is a
+template — keep what fits, change what doesn't, delete what doesn't apply.*
 
 ## General Rules
 
-- **Point of View**: Third person limited, deep POV — tight on protagonist Kai Reeves
-- **Tense**: Past tense
-- **Tone**: Dark and propulsive with dry technical humor. Think Michael Crichton meets Mr. Robot.
+- **Point of View**: e.g., third person limited / first person / dual POV
+- **Tense**: e.g., past / present
+- **Tone**: 1-2 sentences describing the overall feel of the prose
 
 ## Dialogue Rules
 
-- Use "said" as the default dialogue tag (invisible to readers)
-- Avoid adverbs in dialogue tags ("he said angrily" → show it through action)
-- Each character should have a distinct voice:
-  - **Kai**: Casual, sarcastic, code-laced metaphors ("That's not a bug, it's a feature that kills people")
-  - **Executives**: Corporate-speak, euphemisms, liability-conscious
-  - **OmegaClaw** (when it communicates): Precise, eerily calm, logically ruthless
-  - **IT colleagues**: Jargon-heavy, stressed, darkly funny
-- Break up long dialogue with action beats — especially keyboard/screen actions
+- Default tag preference (e.g., "said" as invisible default)
+- Stance on adverbs in dialogue tags
+- Per-character voice notes (one bullet per main character)
+- Action-beat-vs-tag ratio preference
 
 ## Prose Rules
 
-- Favor active voice over passive voice
-- Vary sentence length for rhythm (short sentences = tension, long = flow)
-- Show emotion through physical sensation and action, not labels
-- Avoid filter words: "saw," "heard," "felt," "noticed," "realized"
-- Technical details should be accurate but never slow the plot
-- Show the protagonist's anxiety through physical sensations (dry mouth, racing pulse, cold sweat)
-- Short paragraphs in action/tension scenes (1-3 sentences)
-- Sentence fragments allowed for pacing and urgency
-- Code snippets or terminal output can appear briefly for authenticity (max 3 lines)
+- Active vs. passive voice preference
+- Sentence-length variety expectations
+- Filter words to avoid (saw / heard / felt / noticed / realized)
+- Sensory-detail conventions
+- Paragraph-length guidance for action vs. reflection scenes
 
 ## Words to Avoid
 
-- "Suddenly" (remove 90% of the time)
-- "Very" / "Really" (find a stronger word)
-- "Just" (remove unless it means "only")
-- "Utilize" (say "use")
-- "Leverage" as a verb (too corporate for prose)
-- "Basically" (remove entirely)
-- "Started to" / "Began to" (just do the action)
-- "Cutting-edge" / "State-of-the-art" (cliche in tech thrillers)
+- "Suddenly", "very", "really", "just", "started to / began to"
+- Add or remove based on your own pet peeves
 
 ## Chapter Structure
 
-- Open with a hook or mid-action — no throat-clearing
-- End every chapter with a reason to turn the page (cliffhanger, revelation, or dread)
-- Target chapter length: 2,500-3,500 words (thriller pacing)
-- Alternate between high-tension and breather chapters, but even breathers should carry unease
+- Chapter-opening conventions (hook? mid-action? orientation?)
+- Chapter-ending conventions (cliffhanger? quiet beat?)
+- Target chapter length range
+- Pacing rhythm across chapters
 
 ## Scene Structure
 
-- Every scene needs a goal, conflict, and outcome
-- Enter late, leave early
-- Each scene should escalate the stakes or reveal new information
-- The clock is always ticking — make the reader feel time pressure
+- Goal / obstacle / outcome conventions
+- Time / location transition handling
+- Scene-break formatting (`***` / `# ` / blank line)
 
 ---
 
-*Configured for: OmegaClaw tech-thriller. Edit to match your personal style.*
+*To replace this template with a richer auto-generated style guide, paste a
+sample of your own prose into the **Library** panel and run "Learn my style
+from this manuscript".*

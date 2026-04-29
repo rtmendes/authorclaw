@@ -55,6 +55,7 @@ function buildSafeEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
   const sensitiveKeys = [
     'AUTHORCLAW_VAULT_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY',
     'GEMINI_API_KEY', 'DEEPSEEK_API_KEY', 'TOGETHER_API_KEY',
+    'ELEVENLABS_API_KEY', 'OPENROUTER_API_KEY',
   ];
   for (const key of sensitiveKeys) {
     delete env[key];
@@ -63,6 +64,64 @@ function buildSafeEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
     Object.assign(env, extra);
   }
   return env;
+}
+
+/**
+ * Pre-execution command scan — inspired by Hermes Agent's Tirith pattern.
+ * Returns a list of warnings if the command looks dangerous. The
+ * orchestrator uses this to BLOCK obviously-destructive commands and
+ * REQUIRE explicit acknowledgment for borderline ones.
+ *
+ * This is a defense-in-depth layer, not a sandbox replacement.
+ */
+export interface CommandScanResult {
+  /** True = command is BLOCKED outright. */
+  blocked: boolean;
+  /** Warnings the user should review even if not blocked. */
+  warnings: string[];
+  /** The pattern that matched (for audit logging). */
+  matched?: string;
+}
+
+const HARD_BLOCK_PATTERNS: Array<{ re: RegExp; reason: string }> = [
+  { re: /\brm\s+-rf?\s+(\/|~|\$HOME|\$\{HOME\}|\.\.)/i, reason: 'rm -rf against root, home, or parent — almost certainly destructive' },
+  { re: /\bdd\s+if=.+of=\/dev\//i, reason: 'dd writing to a raw device — disk-wiping pattern' },
+  { re: /\bmkfs(\.\w+)?\b/i, reason: 'filesystem format command' },
+  { re: /:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;/, reason: 'fork-bomb' },
+  { re: /\bcurl\s+[^|]*\|\s*(?:bash|sh|zsh|fish)\b/i, reason: 'curl-piped-to-shell — never run remote scripts blind' },
+  { re: /\bwget\s+[^|]*\|\s*(?:bash|sh|zsh|fish)\b/i, reason: 'wget-piped-to-shell — never run remote scripts blind' },
+  { re: /\b(?:shutdown|reboot|halt|poweroff)\b/i, reason: 'system shutdown / reboot' },
+  { re: /\bchmod\s+(?:-R\s+)?(?:777|0?777)\s+(?:\/|~)/i, reason: 'chmod 777 on root/home — dangerous permission change' },
+  { re: />\s*\/dev\/(?:sd[a-z]|nvme\d+n\d+|disk\d+)\b/i, reason: 'redirecting output to a raw disk device' },
+];
+
+const WARN_PATTERNS: Array<{ re: RegExp; reason: string }> = [
+  { re: /\bsudo\b/i, reason: 'sudo — script will request elevated privileges' },
+  { re: /\bcurl\s/i, reason: 'curl — network request; verify the URL is what you expect' },
+  { re: /\bwget\s/i, reason: 'wget — network request' },
+  { re: /\bgit\s+(?:reset\s+--hard|push\s+--force|clean\s+-f)/i, reason: 'destructive git operation' },
+  { re: /\bnpm\s+(?:install|add|i)\s+-g\b/i, reason: 'global npm install — affects system-wide Node' },
+  { re: /\bpip\s+install/i, reason: 'pip install — Python package install' },
+];
+
+export function scanCommand(command: string, args: string[] = []): CommandScanResult {
+  // Combine command + args into a single string for pattern matching.
+  // ManagedScript runs with shell:true on Windows so the user's command
+  // string can already contain shell metacharacters — scan the joined form.
+  const full = [command, ...args].join(' ');
+  const warnings: string[] = [];
+
+  for (const { re, reason } of HARD_BLOCK_PATTERNS) {
+    if (re.test(full)) {
+      return { blocked: true, warnings: [reason], matched: re.source };
+    }
+  }
+
+  for (const { re, reason } of WARN_PATTERNS) {
+    if (re.test(full)) warnings.push(reason);
+  }
+
+  return { blocked: false, warnings };
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -117,6 +176,28 @@ class ManagedScript {
     this.stopping = false;
     this._lastError = null;
     this._exitCode = null;
+
+    // Pre-execution command scan (Hermes-inspired Tirith pattern).
+    // Hard-blocks destructive commands (rm -rf /, dd of=/dev/sda, fork-bombs,
+    // curl|sh) and warns on borderline ones (sudo, --force pushes, etc.).
+    const scan = scanCommand(this.config.command, this.config.args);
+    if (scan.blocked) {
+      const reason = `Pre-execution scan BLOCKED command: ${scan.warnings.join('; ')}`;
+      this._lastError = reason;
+      this._state = 'crashed';
+      this.logs.push(`[system] ${reason}`);
+      this.logs.push(`[system] Pattern matched: ${scan.matched}`);
+      this.logs.push(`[system] To run this anyway, edit the command in the dashboard or via /api/orchestrator/scripts.`);
+      this.emitter.emit('script-crashed', {
+        id: this.config.id, error: reason, restartCount: this._restartCount, blocked: true,
+      });
+      return;
+    }
+    if (scan.warnings.length > 0) {
+      // Non-blocking warnings — surface in the log so the user sees them in
+      // the dashboard logs panel.
+      for (const w of scan.warnings) this.logs.push(`[scan-warn] ${w}`);
+    }
 
     try {
       this.process = spawn(this.config.command, this.config.args, {
