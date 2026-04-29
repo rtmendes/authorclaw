@@ -48,7 +48,7 @@ for [tool name and description]".
 
 ## Where to buy author tools
 
-[**Writing Secrets Ko-Fi store**](https://ko-fi.com/writingsecrets/shop) —
+[**Writing Secrets Ko-Fi store**](https://ko-fi.com/ckokoski/shop) —
 one-off purchases of standalone author tools (Book Bible Engine, Workflow
 Engine, Manuscript Autopsy, Style Clone Pro, and others). These work
 standalone *and* plug into AuthorClaw via Option 1 or Option 2 above.
