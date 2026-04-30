@@ -44,6 +44,8 @@ import { UserModelService } from './services/user-model.js';
 import { CronSchedulerService } from './services/cron-scheduler.js';
 import { AutoSkillService } from './services/auto-skill.js';
 import { WritingJudgeService } from './services/writing-judge.js';
+import { ResearchLookupService } from './services/research-lookup.js';
+import { VideoResearchService } from './services/video-research.js';
 import { LessonStore } from './services/lessons.js';
 import { PreferenceStore } from './services/preferences.js';
 import { OrchestratorService } from './services/orchestrator.js';
@@ -117,6 +119,8 @@ class AuthorClawGateway {
   private cronScheduler!: CronSchedulerService;
   private autoSkill!: AutoSkillService;
   private writingJudge!: WritingJudgeService;
+  private researchLookup!: ResearchLookupService;
+  private videoResearch!: VideoResearchService;
   private lessons!: LessonStore;
   private preferences!: PreferenceStore;
   private orchestrator!: OrchestratorService;
@@ -427,6 +431,19 @@ class AuthorClawGateway {
     // keep AI cost predictable.
     this.writingJudge = new WritingJudgeService();
     console.log('  ✓ Writing judge: mechanical screen + LLM judge ready');
+
+    // ── Phase 6g6: Research services (sourced lookup + video extraction) ──
+    this.researchLookup = new ResearchLookupService();
+    this.researchLookup.setDependencies(this.vault, this.aiRouter);
+
+    this.videoResearch = new VideoResearchService(join(ROOT_DIR, 'workspace'));
+    this.videoResearch.setDependencies(this.vault, this.aiRouter);
+    const videoDoctor = await this.videoResearch.doctor();
+    if (videoDoctor.ready) {
+      console.log(`  ✓ Research lookup ready (Perplexity via OpenRouter or fallback) | Video research ready (yt-dlp${videoDoctor.ffmpegInstalled ? ' + ffmpeg' : ''}${videoDoctor.whisperKeyConfigured ? ' + Whisper' : ''})`);
+    } else {
+      console.log('  ✓ Research lookup ready | Video research disabled (yt-dlp not installed — see /api/video/doctor)');
+    }
 
     // ── Wire project-completion hooks ──
     // When a project finishes, observe the event for the user model AND
@@ -1354,6 +1371,8 @@ class AuthorClawGateway {
       cronScheduler: this.cronScheduler,
       autoSkill: this.autoSkill,
       writingJudge: this.writingJudge,
+      researchLookup: this.researchLookup,
+      videoResearch: this.videoResearch,
       lessons: this.lessons,
       preferences: this.preferences,
       orchestrator: this.orchestrator,
