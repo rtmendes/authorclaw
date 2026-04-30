@@ -1066,6 +1066,78 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
           }
         }
 
+        // ── Quality loop: evaluate + retry on write/polish steps ──
+        // AutoNovel-inspired modify-evaluate-retry. Defaults to 1 retry
+        // (so each chapter costs at most 3 AI calls: draft + judge + retry).
+        // Authors can disable per-project via context.qualityLoopEnabled=false.
+        try {
+          const judge = services.writingJudge;
+          const stepSkill = (activeStep as any).skill || '';
+          const stepPhase = (activeStep as any).phase || '';
+          const isQualityCandidate = stepSkill === 'write' || stepPhase === 'polish';
+          const qualityLoopEnabled = currentProject.context?.qualityLoopEnabled !== false;
+          const qualityThreshold = Number(currentProject.context?.qualityThreshold) || 70;
+          const maxRetries = Number(currentProject.context?.qualityMaxRetries) ?? 1;
+
+          if (judge && isQualityCandidate && qualityLoopEnabled && response.length > 500) {
+            let attempt = 0;
+            let bestResponse = response;
+            let bestScore = -1;
+            while (attempt <= maxRetries) {
+              const verdict = await judge.evaluate(response, {
+                aiComplete: (r: any) => services.aiRouter.complete(r),
+                aiSelectProvider: (taskType: string) => services.aiRouter.selectProvider(taskType),
+                threshold: qualityThreshold,
+              });
+              console.log(`  [judge] "${activeStep.label}" attempt ${attempt + 1}: ${verdict.summary}`);
+              if (verdict.score > bestScore) {
+                bestScore = verdict.score;
+                bestResponse = response;
+              }
+              if (!verdict.retry || attempt >= maxRetries) break;
+
+              // Retry with feedback as additional steering.
+              attempt++;
+              console.log(`  [judge] Retrying with feedback (attempt ${attempt + 1}/${maxRetries + 1})...`);
+              const userMsgWithFeedback = userMessage +
+                '\n\n## Quality feedback on your previous draft\n\n' + verdict.retryFeedback +
+                '\n\nProduce a NEW draft that fixes these specific issues. Output ONLY the chapter prose — no commentary.';
+              let retryResponse = '';
+              try {
+                await gateway.handleMessage(
+                  userMsgWithFeedback,
+                  'project-engine',
+                  (text: string) => { retryResponse = text; },
+                  projectContext,
+                  activeStep.taskType || undefined,
+                );
+                if (retryResponse && retryResponse.length > 500 &&
+                    !retryResponse.startsWith('[AI provider failure]')) {
+                  response = retryResponse;
+                } else {
+                  // Retry failed — keep previous best and stop looping.
+                  break;
+                }
+              } catch {
+                break;
+              }
+            }
+            // Always keep the highest-scoring version we saw.
+            response = bestResponse;
+            services.activityLog?.log({
+              type: 'step_completed',
+              source: 'internal',
+              goalId: currentProject.id,
+              stepLabel: activeStep.label,
+              message: `Quality score: ${bestScore.toFixed(1)}/100 after ${attempt + 1} attempt(s)`,
+              metadata: { qualityScore: bestScore, attempts: attempt + 1 },
+            });
+          }
+        } catch (judgeErr) {
+          // Judge failures should NEVER block step completion — degrade gracefully.
+          console.warn('  [judge] evaluation hook failed:', (judgeErr as Error)?.message || judgeErr);
+        }
+
         const wordCount = response.split(/\s+/).length;
 
         // Save to file
@@ -4248,6 +4320,41 @@ ${sourceCode.substring(0, 15000)}
     } catch (err: any) {
       res.status(500).json({ error: err?.message || 'Draft failed' });
     }
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  // Writing Judge — manual evaluation endpoint
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * POST /api/judge { text, runLLMJudge?, threshold?, mechanicalWeight? }
+   *   Score arbitrary prose. The judge runs automatically inside the project
+   *   pipeline; this endpoint lets the user (or scripts) score loose text.
+   */
+  app.post('/api/judge', async (req: Request, res: Response) => {
+    if (!services.writingJudge) return res.status(503).json({ error: 'Writing judge not initialized' });
+    const { text, runLLMJudge, threshold, mechanicalWeight } = req.body || {};
+    if (!text || typeof text !== 'string') return res.status(400).json({ error: 'text (string) required' });
+    try {
+      const verdict = await services.writingJudge.evaluate(text, {
+        aiComplete: runLLMJudge !== false ? (r: any) => services.aiRouter.complete(r) : undefined,
+        aiSelectProvider: runLLMJudge !== false ? (taskType: string) => services.aiRouter.selectProvider(taskType) : undefined,
+        threshold,
+        mechanicalWeight,
+        runLLMJudge: runLLMJudge !== false,
+      });
+      res.json(verdict);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'Evaluation failed' });
+    }
+  });
+
+  /** GET /api/judge/screen?text=... — mechanical screen only (no AI cost). */
+  app.get('/api/judge/screen', (req: Request, res: Response) => {
+    if (!services.writingJudge) return res.status(503).json({ error: 'Writing judge not initialized' });
+    const text = String(req.query.text || '');
+    if (!text) return res.status(400).json({ error: 'text query param required' });
+    res.json(services.writingJudge.mechanicalScreen(text));
   });
 
   // ─── Browser Doctor ───

@@ -43,6 +43,7 @@ import { MemorySearchService } from './services/memory-search.js';
 import { UserModelService } from './services/user-model.js';
 import { CronSchedulerService } from './services/cron-scheduler.js';
 import { AutoSkillService } from './services/auto-skill.js';
+import { WritingJudgeService } from './services/writing-judge.js';
 import { LessonStore } from './services/lessons.js';
 import { PreferenceStore } from './services/preferences.js';
 import { OrchestratorService } from './services/orchestrator.js';
@@ -115,6 +116,7 @@ class AuthorClawGateway {
   private userModel!: UserModelService;
   private cronScheduler!: CronSchedulerService;
   private autoSkill!: AutoSkillService;
+  private writingJudge!: WritingJudgeService;
   private lessons!: LessonStore;
   private preferences!: PreferenceStore;
   private orchestrator!: OrchestratorService;
@@ -417,6 +419,14 @@ class AuthorClawGateway {
     await this.autoSkill.initialize();
     const drafts = this.autoSkill.list({ status: 'pending_review' });
     console.log(`  ✓ Auto-skill drafter: ${drafts.length} draft(s) pending review`);
+
+    // ── Phase 6g5: Writing Judge (AutoNovel-inspired evaluate-retry loop) ──
+    // Mechanical screen (regex) + LLM judge runs on every chapter draft.
+    // If quality below threshold, the auto-execute path retries with the
+    // judge's feedback as steering input. Capped at 1 retry by default to
+    // keep AI cost predictable.
+    this.writingJudge = new WritingJudgeService();
+    console.log('  ✓ Writing judge: mechanical screen + LLM judge ready');
 
     // ── Wire project-completion hooks ──
     // When a project finishes, observe the event for the user model AND
@@ -1343,6 +1353,7 @@ class AuthorClawGateway {
       userModel: this.userModel,
       cronScheduler: this.cronScheduler,
       autoSkill: this.autoSkill,
+      writingJudge: this.writingJudge,
       lessons: this.lessons,
       preferences: this.preferences,
       orchestrator: this.orchestrator,
