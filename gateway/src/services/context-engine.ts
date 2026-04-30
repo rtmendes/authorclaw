@@ -86,27 +86,24 @@ Return ONLY valid JSON with this exact structure:
   "endingState": "1-2 sentences: where things stand at chapter end"
 }`;
 
-const ENTITY_PROMPT = `You are a story analyst. Extract all named entities from this chapter text.
+const ENTITY_PROMPT = `You are a story analyst. Extract named entities from this chapter text.
 
 For each entity, provide:
 - name: the primary name used
 - type: "character", "location", "item", "event", or "rule" (world-building rules)
-- aliases: other names/titles used for this entity
-- description: brief description based on what this chapter reveals
-- attributes: key-value pairs of specific details (e.g., eye_color, age, weapon, population, climate)
+- aliases: other names/titles used (max 3, only if distinct)
+- description: ONE SENTENCE based on what this chapter reveals. NOT a full bio.
+- attributes: AT MOST 3 key-value pairs of NEW specifics revealed in this chapter only
 
-Return ONLY valid JSON:
-{
-  "entities": [
-    {
-      "name": "...",
-      "type": "character",
-      "aliases": [],
-      "description": "...",
-      "attributes": { "key": "value" }
-    }
-  ]
-}`;
+CRITICAL OUTPUT CONSTRAINTS:
+- Description MUST be one sentence under 25 words
+- Skip entities mentioned only in passing (one mention = skip)
+- Maximum 12 entities total — pick the most important
+- Output MUST be valid JSON. No markdown code fences. No commentary.
+- Close every brace and bracket. Truncated JSON is unusable.
+
+Return ONLY this JSON shape:
+{"entities":[{"name":"...","type":"character","aliases":[],"description":"...","attributes":{"key":"value"}}]}`;
 
 const CONTINUITY_CHARACTER_PROMPT = `You are a continuity editor. Review these character profiles tracked across multiple chapters of a novel. Identify any inconsistencies, contradictions, or errors.
 
@@ -187,32 +184,128 @@ export class ContextEngine {
       .trim();
 
     const start = cleaned.indexOf('{');
-    const end = cleaned.lastIndexOf('}');
-    if (start < 0 || end <= start) {
-      // Truncate the snippet for the error message — useful for debugging
-      // without bloating the log.
+    if (start < 0) {
       const preview = text.substring(0, 200).replace(/\s+/g, ' ');
       throw new Error(`No valid JSON object found in AI response. First 200 chars: "${preview}"`);
     }
-    cleaned = cleaned.substring(start, end + 1);
+    const end = cleaned.lastIndexOf('}');
 
+    // Stage 1: well-formed response — extract substring between first { and last }.
+    if (end > start) {
+      const candidate = cleaned.substring(start, end + 1);
+      const parsed = this.tryParse(candidate);
+      if (parsed !== undefined) return parsed;
+    }
+
+    // Stage 2: truncated response (no closing brace, or parse failed even with
+    // one). Try to RECOVER what we can by trimming back to the last complete
+    // entity, then closing the structure.
+    //
+    // This is critical for entity extraction: when max_tokens cuts off the
+    // response mid-entity, we still have N-1 valid entities. Throwing away
+    // the whole thing wastes those N-1 entities AND the AI call. Better to
+    // accept the partial result.
+    const truncated = cleaned.substring(start);
+    const recovered = this.recoverTruncatedJson(truncated);
+    if (recovered) {
+      const parsed = this.tryParse(recovered);
+      if (parsed !== undefined) return parsed;
+    }
+
+    const preview = cleaned.substring(0, 300).replace(/\s+/g, ' ');
+    throw new Error(`Could not parse AI JSON after recovery attempts. Snippet: "${preview}"`);
+  }
+
+  /** Try to JSON.parse with a couple of common-fix passes. Returns undefined on failure. */
+  private tryParse(candidate: string): any | undefined {
+    try { return JSON.parse(candidate); } catch { /* fall through */ }
     try {
-      return JSON.parse(cleaned);
-    } catch (err) {
-      // Try to fix common AI JSON issues (trailing commas, single quotes,
-      // unquoted keys). Stays defensive — if both attempts fail, surface
-      // the original snippet so the operator can see what the model returned.
-      try {
-        const fixed = cleaned
-          .replace(/,\s*([}\]])/g, '$1')         // remove trailing commas
-          .replace(/(['"])?(\w+)(['"])?\s*:/g, '"$2":') // ensure quoted keys
-          .replace(/:\s*'([^']*)'/g, ': "$1"');   // single quotes to double
-        return JSON.parse(fixed);
-      } catch (err2) {
-        const preview = cleaned.substring(0, 300).replace(/\s+/g, ' ');
-        throw new Error(`Could not parse AI JSON after repair attempts. Snippet: "${preview}"`);
+      const fixed = candidate
+        .replace(/,\s*([}\]])/g, '$1')         // remove trailing commas
+        .replace(/(['"])?(\w+)(['"])?\s*:/g, '"$2":') // ensure quoted keys
+        .replace(/:\s*'([^']*)'/g, ': "$1"');   // single quotes to double
+      return JSON.parse(fixed);
+    } catch { return undefined; }
+  }
+
+  /**
+   * Attempt to close a truncated JSON object/array by:
+   *   1. Finding the last complete element (object or value followed by `,`)
+   *   2. Counting open braces/brackets vs closed to determine what's missing
+   *   3. Backing off to the last comma at depth 1 inside an array, then
+   *      closing brackets/braces in reverse order
+   *
+   * This is a best-effort heuristic — some truncations are unrecoverable,
+   * but for entity extraction we frequently get N-1 complete entities and
+   * one half-finished one. This salvages the N-1.
+   */
+  private recoverTruncatedJson(s: string): string | null {
+    if (!s || s[0] !== '{') return null;
+
+    // Walk the string tracking string-literal context, escape sequences, and
+    // brace/bracket depth. When we hit the end of input mid-string, back off.
+    let inString = false;
+    let escape = false;
+    const stack: string[] = []; // '{' or '['
+    let lastSafeIndex = -1; // last index where we are at depth 1 inside an array, after a comma
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      if (escape) { escape = false; continue; }
+      if (c === '\\') { escape = true; continue; }
+      if (c === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (c === '{' || c === '[') stack.push(c);
+      else if (c === '}') stack.pop();
+      else if (c === ']') stack.pop();
+      else if (c === ',' && stack.length === 2 && stack[0] === '{' && stack[1] === '[') {
+        // We're inside an array that's directly inside the root object —
+        // this is the entity-list shape we care about. Mark this comma as
+        // a safe truncation point.
+        lastSafeIndex = i;
       }
     }
+
+    // If we ended cleanly (depth 0, not in string), the original parse
+    // would have worked. Recovery only helps when stack is non-empty.
+    if (stack.length === 0 && !inString) return s;
+
+    // If we ended mid-string OR mid-element, back off to the last safe comma
+    // (which is between completed array elements) and close properly.
+    let truncated = s;
+    if (lastSafeIndex > 0) {
+      truncated = s.substring(0, lastSafeIndex);
+      // Recompute stack for the trimmed string.
+      let depth = 0;
+      const newStack: string[] = [];
+      let inStr = false;
+      let esc = false;
+      for (const c of truncated) {
+        if (esc) { esc = false; continue; }
+        if (c === '\\') { esc = true; continue; }
+        if (c === '"') { inStr = !inStr; continue; }
+        if (inStr) continue;
+        if (c === '{' || c === '[') newStack.push(c);
+        else if (c === '}' || c === ']') newStack.pop();
+        depth = newStack.length;
+      }
+      // Close every still-open container in reverse order.
+      while (newStack.length > 0) {
+        const open = newStack.pop()!;
+        truncated += open === '{' ? '}' : ']';
+      }
+      return truncated;
+    }
+
+    // Fallback: just close the open containers in reverse order. Likely to
+    // produce malformed JSON if we truncated mid-string, but it's worth
+    // one try.
+    let recovery = s;
+    if (inString) recovery += '"';
+    while (stack.length > 0) {
+      const open = stack.pop()!;
+      recovery += open === '{' ? '}' : ']';
+    }
+    return recovery;
   }
 
   // ── Persistence ──────────────────────────────────────────
@@ -310,7 +403,10 @@ export class ContextEngine {
           content: `Chapter ${chapterNumber}: "${stepLabel}"\n\n${fullText}`,
         },
       ],
-      maxTokens: 2000,
+      // Bumped from 2000 → 4096 because long chapters with rich plot threads
+      // were getting truncated mid-summary, leaving ContextEngine with
+      // unparseable JSON.
+      maxTokens: 4096,
       temperature: 0.3,
     });
 
@@ -368,7 +464,11 @@ export class ContextEngine {
           content: fullText,
         },
       ],
-      maxTokens: 3000,
+      // Bumped from 3000 → 8192 to accommodate chapters with many characters
+      // + locations + items. Combined with the tightened prompt (one-sentence
+      // descriptions, max 3 attributes, max 12 entities) this gives plenty
+      // of headroom without bloating cost.
+      maxTokens: 8192,
       temperature: 0.2,
     });
 

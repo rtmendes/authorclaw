@@ -1134,10 +1134,54 @@ export class ProjectEngine {
       const state = JSON.parse(raw);
       if (state.nextId) this.nextId = state.nextId;
       if (Array.isArray(state.projects)) {
+        let migrated = 0;
         for (const p of state.projects) {
+          // ── Legacy book-production migration ──
+          // Projects created before commit 8bd7940 have analysis-only
+          // "Self-review Chapter N" steps that produce critique notes but
+          // never apply them. Auto-migrate any PENDING / ACTIVE self-review
+          // step to the new polish prompt + phase so old projects benefit
+          // from the same revise-and-rewrite behavior as new ones.
+          // Completed steps are left alone — their output is already saved.
+          if (p.type === 'book-production' && Array.isArray(p.steps)) {
+            for (const step of p.steps) {
+              const isLegacySelfReview =
+                (step.status === 'pending' || step.status === 'active') &&
+                typeof step.label === 'string' &&
+                step.label.startsWith('Self-review Chapter') &&
+                step.skill === 'revise' &&
+                step.phase !== 'polish';
+              if (isLegacySelfReview) {
+                const ch = step.chapterNumber || (step.label.match(/Chapter (\d+)/)?.[1] ?? 'N');
+                const wpc = (p.context?.targetWordsPerChapter as number) || 3000;
+                step.label = `Polish Chapter ${ch}`;
+                step.phase = 'polish';
+                step.wordCountTarget = wpc;
+                step.prompt =
+                  `You just wrote Chapter ${ch} of "${p.title}" (in your context above).\n\n` +
+                  `Produce a REVISED, POLISHED version of THE ENTIRE chapter. Apply these fixes as you rewrite:\n` +
+                  `- Tighten pacing; cut throat-clearing\n` +
+                  `- Strengthen weak verbs; remove unnecessary -ly adverbs\n` +
+                  `- Replace filter words (saw, heard, felt, noticed, realized) with direct sensory experience\n` +
+                  `- Cut repetition and redundancy\n` +
+                  `- Sharpen dialogue; remove "as you know Bob" exposition\n` +
+                  `- Maintain the chapter's plot beats and emotional arc — don't change the story, just the prose quality\n` +
+                  `- Ensure word count is at least ${wpc}\n\n` +
+                  `CRITICAL OUTPUT RULES:\n` +
+                  `1. Output the COMPLETE polished chapter as prose. No commentary. No "here's the revised version:" preamble.\n` +
+                  `2. Do NOT output a list of changes or a critique.\n` +
+                  `3. Do NOT shorten the chapter. The polished version should be the same length or longer.\n` +
+                  `4. Start directly with the chapter content (or "# Chapter ${ch}: ..." heading).`;
+                migrated++;
+              }
+            }
+          }
           this.projects.set(p.id, p);
         }
-        console.log(`  ✓ Restored ${state.projects.length} projects from disk`);
+        console.log(`  ✓ Restored ${state.projects.length} projects from disk` +
+          (migrated > 0 ? ` (migrated ${migrated} legacy self-review step${migrated === 1 ? '' : 's'} to polish)` : ''));
+        // Persist the migration so it doesn't run again on next boot.
+        if (migrated > 0) this.persistState();
       }
     } catch (err) {
       console.error('  ⚠ Failed to load project state:', err);
