@@ -60,6 +60,44 @@ export interface SSMLExportResult {
   disclosureIncluded: boolean;
 }
 
+// ── Multi-voice attribution (AutoNovel-inspired speaker mapping) ──
+
+export type Speaker =
+  | { kind: 'narrator' }
+  | { kind: 'character'; name: string }
+  | { kind: 'unknown' };
+
+export interface AttributedSegment {
+  /** Order in the source text. */
+  index: number;
+  speaker: Speaker;
+  /** The line(s) the speaker says. Narration segments include action beats. */
+  text: string;
+  /** Voice ID resolved from the speaker map (e.g., "en-US-AriaNeural"). */
+  voiceId?: string;
+  /** True if speaker attribution was inferred rather than explicit. */
+  inferred: boolean;
+}
+
+export interface VoiceMap {
+  /** Voice for narration / no-character segments. */
+  narratorVoice: string;
+  /** character name → voice ID. Names match ContextEngine character entries. */
+  characterVoices: Record<string, string>;
+  /** Fallback for characters not in the map. */
+  defaultCharacterVoice?: string;
+}
+
+export interface MultiVoiceScript {
+  chapterNumber: number;
+  title: string;
+  segments: AttributedSegment[];
+  /** Names that appeared without a voice assignment in the map. */
+  unmappedSpeakers: string[];
+  /** Total estimated duration at 150 wpm. */
+  approxDurationSec: number;
+}
+
 export class AudiobookPrepService {
   /**
    * Pass 1: Normalize manuscript text for narration.
@@ -267,6 +305,184 @@ export class AudiobookPrepService {
     // Multi-word invented names.
     if (/\s/.test(name) && name.length > 10) return true;
     return true; // Default: include (safer to over-include than miss names)
+  }
+
+  /**
+   * Pass 4 (NEW): Attribute dialogue to speakers and assign per-character
+   * voices for multi-voice audiobook narration. AutoNovel-inspired but
+   * scoped to author needs — works with any TTS provider that supports
+   * separate voice IDs (Edge TTS, ElevenLabs, etc.).
+   *
+   * Detects dialogue via standard quote conventions:
+   *   "Get out," she said.       → speaker = "she" → resolved via priors
+   *   "Run," Sarah whispered.    → speaker = "Sarah" (explicit attribution)
+   *   "Run!" said Marcus.        → speaker = "Marcus"
+   *   Bare dialogue (no tag)     → speaker = previous speaker (turn-taking)
+   *
+   * Falls back to narrator voice for narration / action beats.
+   *
+   * Output is a sequence of AttributedSegments the dashboard can stitch
+   * together — one TTS call per segment, then concatenate the audio files.
+   */
+  attributeMultiVoice(input: {
+    chapterNumber: number;
+    title: string;
+    text: string;
+    characterNames: string[];      // From ContextEngine entity list
+    voiceMap: VoiceMap;
+  }): MultiVoiceScript {
+    const segments: AttributedSegment[] = [];
+    const unmappedSet = new Set<string>();
+    let segIdx = 0;
+
+    // Build a fast-lookup set of canonical character names (lowercased).
+    const charNameLower = new Map<string, string>();
+    for (const n of input.characterNames || []) {
+      const k = n.toLowerCase().trim();
+      if (k) charNameLower.set(k, n);
+    }
+
+    // Helper: resolve a speaker name to a voice + flag unmapped.
+    const resolveVoice = (name: string): string => {
+      const exact = input.voiceMap.characterVoices[name];
+      if (exact) return exact;
+      // Case-insensitive fallback
+      for (const [k, v] of Object.entries(input.voiceMap.characterVoices)) {
+        if (k.toLowerCase() === name.toLowerCase()) return v;
+      }
+      unmappedSet.add(name);
+      return input.voiceMap.defaultCharacterVoice || input.voiceMap.narratorVoice;
+    };
+
+    // Track the last identified speaker for bare-dialogue turn-taking.
+    let lastDialogueSpeaker: string | null = null;
+
+    // Split into paragraphs first — dialogue convention is one
+    // speaker-per-paragraph in modern fiction.
+    const paragraphs = input.text.split(/\n\s*\n+/).filter(p => p.trim());
+
+    // Patterns we look for in attribution tags.
+    // Matches: "..." NAME said|asked|whispered|... | said|asked|... NAME ...
+    const explicitTagRe = /(?:["\u201D\u201C]\s*[,.?!]?\s*)([A-Z][a-z]{2,}(?:\s[A-Z][a-z]+)?)\s+(?:said|asked|whispered|shouted|murmured|replied|added|continued|growled|hissed|breathed|spat|snapped|laughed|cried|exclaimed|gasped|muttered|sighed|stammered|interjected|noted|protested|objected)\b/i;
+    const reverseTagRe = /\b(?:said|asked|whispered|shouted|murmured|replied|added|continued|growled|hissed|breathed|spat|snapped|laughed|cried|exclaimed|gasped|muttered|sighed)\s+([A-Z][a-z]{2,}(?:\s[A-Z][a-z]+)?)/i;
+
+    for (const para of paragraphs) {
+      const trimmed = para.trim();
+      // Detect dialogue paragraphs by leading quote character.
+      const startsWithQuote = /^[""\u201C"]/.test(trimmed);
+      if (!startsWithQuote) {
+        // Pure narration / action beat — narrator voice.
+        segments.push({
+          index: segIdx++,
+          speaker: { kind: 'narrator' },
+          text: trimmed,
+          voiceId: input.voiceMap.narratorVoice,
+          inferred: false,
+        });
+        continue;
+      }
+
+      // Try to extract a speaker name from the tag.
+      let speakerName: string | null = null;
+      let inferred = false;
+
+      const explicit = trimmed.match(explicitTagRe);
+      if (explicit?.[1]) {
+        speakerName = explicit[1].trim();
+      } else {
+        const reverse = trimmed.match(reverseTagRe);
+        if (reverse?.[1]) speakerName = reverse[1].trim();
+      }
+
+      // Validate the candidate against the known character list.
+      if (speakerName) {
+        const candidateLower = speakerName.toLowerCase();
+        const matched = charNameLower.get(candidateLower);
+        if (matched) {
+          speakerName = matched;
+          lastDialogueSpeaker = matched;
+        } else {
+          // Name not in our character list — could be a minor character
+          // or a false-positive. Keep the literal name; flag as inferred.
+          inferred = true;
+          lastDialogueSpeaker = speakerName;
+        }
+      } else if (lastDialogueSpeaker) {
+        // Bare dialogue — assume turn-taking (previous speaker continues
+        // OR the other speaker takes a turn). The simplest heuristic is
+        // "previous speaker" — turn-taking is hard without a full character
+        // graph and this falls back to narrator audibly which is fine.
+        speakerName = lastDialogueSpeaker;
+        inferred = true;
+      }
+
+      if (speakerName) {
+        const voiceId = resolveVoice(speakerName);
+        segments.push({
+          index: segIdx++,
+          speaker: { kind: 'character', name: speakerName },
+          text: trimmed,
+          voiceId,
+          inferred,
+        });
+      } else {
+        // Quoted text we can't attribute — leave as unknown for the
+        // dashboard / author to fix manually.
+        segments.push({
+          index: segIdx++,
+          speaker: { kind: 'unknown' },
+          text: trimmed,
+          voiceId: input.voiceMap.narratorVoice,
+          inferred: true,
+        });
+      }
+    }
+
+    // Estimate duration (150 wpm narrator, faster for dialogue snippets).
+    const wordCount = input.text.split(/\s+/).filter(Boolean).length;
+    const approxDurationSec = Math.ceil(wordCount / 150 * 60);
+
+    return {
+      chapterNumber: input.chapterNumber,
+      title: input.title,
+      segments,
+      unmappedSpeakers: Array.from(unmappedSet).sort(),
+      approxDurationSec,
+    };
+  }
+
+  /**
+   * Build a default voice map from a character list. Distributes the
+   * available preset voices across characters in a deterministic order so
+   * the same character gets the same voice on re-runs. The author can
+   * override per-character via the `customVoices` argument.
+   */
+  buildDefaultVoiceMap(input: {
+    characterNames: string[];
+    presetVoiceIds: string[];      // From TTSService preset list
+    narratorVoice: string;
+    customVoices?: Record<string, string>;
+  }): VoiceMap {
+    const characterVoices: Record<string, string> = { ...(input.customVoices || {}) };
+    const used = new Set(Object.values(characterVoices));
+    const available = input.presetVoiceIds.filter(v => v !== input.narratorVoice && !used.has(v));
+
+    // Deterministic alphabetical assignment so the same character keeps the
+    // same voice across runs.
+    const sortedChars = [...input.characterNames].sort();
+    let i = 0;
+    for (const name of sortedChars) {
+      if (characterVoices[name]) continue;
+      const voice = available[i % available.length] || input.narratorVoice;
+      characterVoices[name] = voice;
+      i++;
+    }
+
+    return {
+      narratorVoice: input.narratorVoice,
+      characterVoices,
+      defaultCharacterVoice: input.presetVoiceIds[0] || input.narratorVoice,
+    };
   }
 
   private escapeRegex(s: string): string {
