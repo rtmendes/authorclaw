@@ -171,23 +171,47 @@ export class ContextEngine {
   // ── AI JSON Parsing ──────────────────────────────────────
 
   private parseAIJson(text: string): any {
-    let cleaned = text.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim();
+    // Empty / whitespace-only response — bail with a clear error rather than
+    // letting JSON.parse('{}') succeed silently.
+    if (!text || !text.trim()) {
+      throw new Error('AI returned empty content');
+    }
+
+    // Strip markdown code fences. Some models wrap output in ```json ... ```
+    // even when system prompt forbids it.
+    let cleaned = text
+      .replace(/^[\s\S]*?```(?:json|JSON)?\s*/i, (match) => match.includes('```') ? '' : match)
+      .replace(/```[\s\S]*$/, '')
+      .replace(/```json\s*/gi, '')
+      .replace(/```\s*/gi, '')
+      .trim();
+
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-      cleaned = cleaned.substring(start, end + 1);
-    } else {
-      throw new Error('No valid JSON object found in AI response');
+    if (start < 0 || end <= start) {
+      // Truncate the snippet for the error message — useful for debugging
+      // without bloating the log.
+      const preview = text.substring(0, 200).replace(/\s+/g, ' ');
+      throw new Error(`No valid JSON object found in AI response. First 200 chars: "${preview}"`);
     }
+    cleaned = cleaned.substring(start, end + 1);
+
     try {
       return JSON.parse(cleaned);
     } catch (err) {
-      // Try to fix common AI JSON issues (trailing commas, single quotes)
-      const fixed = cleaned
-        .replace(/,\s*([}\]])/g, '$1')         // remove trailing commas
-        .replace(/(['"])?(\w+)(['"])?\s*:/g, '"$2":') // ensure quoted keys
-        .replace(/:\s*'([^']*)'/g, ': "$1"');   // single quotes to double
-      return JSON.parse(fixed);
+      // Try to fix common AI JSON issues (trailing commas, single quotes,
+      // unquoted keys). Stays defensive — if both attempts fail, surface
+      // the original snippet so the operator can see what the model returned.
+      try {
+        const fixed = cleaned
+          .replace(/,\s*([}\]])/g, '$1')         // remove trailing commas
+          .replace(/(['"])?(\w+)(['"])?\s*:/g, '"$2":') // ensure quoted keys
+          .replace(/:\s*'([^']*)'/g, ': "$1"');   // single quotes to double
+        return JSON.parse(fixed);
+      } catch (err2) {
+        const preview = cleaned.substring(0, 300).replace(/\s+/g, ' ');
+        throw new Error(`Could not parse AI JSON after repair attempts. Snippet: "${preview}"`);
+      }
     }
   }
 

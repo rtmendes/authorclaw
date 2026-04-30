@@ -1801,6 +1801,13 @@ Description: ${description}`;
     // Novel pipeline: phase-aware context accumulation
     if (project.type === 'novel-pipeline' && step.phase) {
       context += this.buildNovelPipelineContext(project, step);
+    } else if (project.type === 'book-production') {
+      // Book production: per-chapter scope. The polish step needs the FULL
+      // prior write step (the chapter to revise) — truncating it would force
+      // the AI to half-revise from a fragment. Other writing steps just need
+      // compact summaries of prior chapters so the AI has continuity without
+      // the context window exploding on chapter 25.
+      context += this.buildBookProductionContext(project, step);
     } else {
       // Default: add results from prior steps
       const completedSteps = project.steps.filter(s => s.status === 'completed' && s.result);
@@ -1864,6 +1871,110 @@ Description: ${description}`;
    * Build phase-aware context for novel pipeline steps.
    * Each phase gets relevant prior outputs without overwhelming the context window.
    */
+  /**
+   * Phase-aware context for book-production projects.
+   *
+   * For polish steps: includes the FULL preceding write step (the chapter to
+   * revise) at unlimited length, plus compact 200-word endings of older
+   * chapters for continuity. Without this, the polish step's AI was getting
+   * a 2000-char fragment of the chapter and producing inconsistent rewrites.
+   *
+   * For write steps: includes compact summaries of prior chapters so chapter
+   * 25 doesn't cost 60K tokens of full prior-chapter context.
+   */
+  private buildBookProductionContext(project: Project, step: ProjectStep): string {
+    const stepIdx = project.steps.indexOf(step);
+    const stepCh = (step as any).chapterNumber || 0;
+    const isPolish = step.phase === 'polish';
+    const isWrite = step.skill === 'write';
+
+    let context = '';
+    const completed = project.steps.filter(s => s.status === 'completed' && s.result);
+    if (completed.length === 0) return context;
+
+    if (isPolish && stepIdx > 0) {
+      // The Write step for the same chapter is immediately prior. Find it
+      // explicitly rather than relying on indexOf order.
+      const writeStep = project.steps.find(s =>
+        s.skill === 'write' &&
+        (s as any).chapterNumber === stepCh &&
+        s.status === 'completed' && s.result);
+      if (writeStep) {
+        context += `## Chapter ${stepCh} — first draft (revise this)\n\n`;
+        context += writeStep.result!;
+        context += '\n\n';
+      }
+      // Also include 1-line endings of earlier chapters for tone continuity.
+      const earlier = completed.filter(s =>
+        s.skill === 'write' && ((s as any).chapterNumber || 0) < stepCh);
+      if (earlier.length > 0) {
+        context += `## Earlier chapter endings (for continuity)\n\n`;
+        for (const e of earlier.slice(-3)) {
+          const ch = (e as any).chapterNumber;
+          const tail = (e.result || '').slice(-300).replace(/\s+/g, ' ');
+          context += `Ch ${ch} ended: ${tail}\n\n`;
+        }
+      }
+      return context;
+    }
+
+    if (isWrite && stepCh > 1) {
+      // For chapter N's write step, give last 1-2 polished/written chapters
+      // in compact form. Pick polish output if available, write otherwise.
+      const priorChapters = new Map<number, ProjectStep>();
+      for (const s of completed) {
+        const ch = (s as any).chapterNumber || 0;
+        if (ch === 0 || ch >= stepCh) continue;
+        const existing = priorChapters.get(ch);
+        if (!existing) priorChapters.set(ch, s);
+        else if (s.phase === 'polish' && existing.phase !== 'polish') priorChapters.set(ch, s);
+      }
+      const sortedChapters = Array.from(priorChapters.values())
+        .sort((a, b) => ((a as any).chapterNumber || 0) - ((b as any).chapterNumber || 0));
+
+      // Include full prose of the most recent chapter, summary of older ones.
+      const lastTwo = sortedChapters.slice(-2);
+      const olderOnes = sortedChapters.slice(0, -2);
+
+      if (olderOnes.length > 0) {
+        context += `## Earlier chapters (compact summary)\n\n`;
+        for (const e of olderOnes) {
+          const ch = (e as any).chapterNumber;
+          const r = (e.result || '');
+          // First 100 + last 100 chars to give opening + ending feel
+          const head = r.slice(0, 200).replace(/\s+/g, ' ');
+          const tail = r.slice(-200).replace(/\s+/g, ' ');
+          context += `**Ch ${ch}** opening: ${head}\n  ending: ${tail}\n\n`;
+        }
+      }
+      if (lastTwo.length > 0) {
+        context += `## Most recent chapter${lastTwo.length === 1 ? '' : 's'} (full)\n\n`;
+        for (const e of lastTwo) {
+          const ch = (e as any).chapterNumber;
+          const phaseLabel = e.phase === 'polish' ? 'polished' : 'first draft';
+          context += `### Chapter ${ch} (${phaseLabel})\n\n`;
+          // Cap at 4000 chars per chapter so context doesn't blow up at high N.
+          const r = e.result || '';
+          context += (r.length > 4000 ? r.slice(0, 2000) + '\n[...]\n' + r.slice(-2000) : r);
+          context += '\n\n';
+        }
+      }
+      return context;
+    }
+
+    // Other steps (assembly, etc.) — modest history.
+    const recent = completed.slice(-3);
+    if (recent.length > 0) {
+      context += `## Recent steps\n\n`;
+      for (const r of recent) {
+        const trunc = (r.result || '').length > 1500
+          ? (r.result || '').slice(-1500) : (r.result || '');
+        context += `### ${r.label}\n${trunc}\n\n`;
+      }
+    }
+    return context;
+  }
+
   private buildNovelPipelineContext(project: Project, step: ProjectStep): string {
     let context = '';
     const completed = project.steps.filter(s => s.status === 'completed' && s.result);
@@ -2127,14 +2238,22 @@ Description: ${description}`;
         wordCountTarget: wordsPerChapter,
         chapterNumber: ch,
       });
+      // Bug fix (2026-04): the previous "Self-review Chapter N" step was
+      // analysis-only — the AI produced suggestions but never applied them.
+      // The compile step then mixed review notes into the manuscript because
+      // both steps shared `phase: 'writing'`. Replaced with a polish step
+      // that ACTUALLY rewrites the chapter incorporating its own critique
+      // in a single pass, and is marked phase='polish' so compile and
+      // context-engine know to treat it as the canonical chapter output.
       steps.push({
         id: `${id}-step-${ch * 2}`,
-        label: `Self-review Chapter ${ch}`,
-        phase: 'writing',
+        label: `Polish Chapter ${ch}`,
+        phase: 'polish',
         skill: 'revise',
         taskType: 'revision',
-        prompt: `Review Chapter ${ch} we just wrote. Check for: voice consistency, pacing, show vs tell, dialogue quality, sensory details, word count target (${wordsPerChapter}+). Suggest improvements but focus on completing the chapter, not perfection.`,
+        prompt: `You just wrote Chapter ${ch} of "${title}" (in your context above).\n\nProduce a REVISED, POLISHED version of THE ENTIRE chapter. Apply these fixes as you rewrite:\n- Tighten pacing; cut throat-clearing\n- Strengthen weak verbs; remove unnecessary -ly adverbs\n- Replace filter words (saw, heard, felt, noticed, realized) with direct sensory experience\n- Cut repetition and redundancy\n- Sharpen dialogue; remove "as you know Bob" exposition\n- Maintain the chapter's plot beats and emotional arc — don't change the story, just the prose quality\n- Ensure word count is at least ${wordsPerChapter}\n\nCRITICAL OUTPUT RULES:\n1. Output the COMPLETE polished chapter as prose. No commentary. No "here's the revised version:" preamble.\n2. Do NOT output a list of changes or a critique.\n3. Do NOT shorten the chapter. The polished version should be the same length or longer.\n4. Start directly with the chapter content (or "# Chapter ${ch}: ..." heading).`,
         status: 'pending',
+        wordCountTarget: wordsPerChapter,
         chapterNumber: ch,
       });
     }

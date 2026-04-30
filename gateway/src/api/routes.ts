@@ -578,18 +578,34 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
       if (preferredProvider) project.preferredProvider = preferredProvider;
     };
 
+    // ── Chapter-count + words-per-chapter field aliasing ──
+    // Bug fix (2026-04): the dashboard sends `chapters` and `wordsPerChapter`
+    // at the top level, but createBookProduction / createNovelPipeline expect
+    // `config.targetChapters` and `config.targetWordsPerChapter`. Without this
+    // translation, projects silently default to 25 chapters / 3000 words
+    // regardless of what the user typed in the modal.
+    const resolvedConfig: any = { ...(config || context || {}) };
+    if (req.body.chapters !== undefined && resolvedConfig.targetChapters === undefined) {
+      const n = Number(req.body.chapters);
+      if (Number.isFinite(n) && n > 0) resolvedConfig.targetChapters = n;
+    }
+    if (req.body.wordsPerChapter !== undefined && resolvedConfig.targetWordsPerChapter === undefined) {
+      const n = Number(req.body.wordsPerChapter);
+      if (Number.isFinite(n) && n > 0) resolvedConfig.targetWordsPerChapter = n;
+    }
+
     // Novel pipeline: use dedicated pipeline builder
     // Trust the explicitly-sent type; only infer from description if no type provided
     const inferredType = type || engine.inferProjectType(description);
     if (inferredType === 'novel-pipeline') {
-      const project = engine.createNovelPipeline(title, description, config || context);
+      const project = engine.createNovelPipeline(title, description, resolvedConfig);
       applyProjectOptions(project);
       return res.json({ project, planning: 'novel-pipeline' });
     }
 
     // Book Production: uses dynamic chapter generation
     if (inferredType === 'book-production') {
-      const project = engine.createBookProduction(title, description, config || context || {});
+      const project = engine.createBookProduction(title, description, resolvedConfig);
       applyProjectOptions(project);
       return res.json({ project, planning: 'book-production' });
     }
@@ -1065,19 +1081,29 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
         services.heartbeat.addWords(wordCount);
         results.push({ step: activeStep.label, success: true, wordCount });
 
-        // ── ContextEngine: summarize + extract entities for writing/bible steps ──
+        // ── ContextEngine: summarize + extract entities for canonical chapter prose ──
+        // Bug fix (2026-04): the previous heuristic matched any step whose label
+        // contained "chapter" or "write" — which included "Self-review Chapter N"
+        // and other analysis steps. That doubled AI cost AND polluted the entity
+        // index with character/location names mentioned in critique form ("Sarah's
+        // motivation feels weak" → indexed as a Sarah attribute change). Now uses
+        // the precise skill+phase signal: only `skill === 'write'` (first-draft
+        // chapter prose) OR `phase === 'polish'` (revised chapter prose) qualify.
+        // The polish step replaces the prior summary because its chapterNumber
+        // matches the write step and the summary upserts on (projectId, chapterId)
+        // — so the polished version becomes canonical without dropping memory.
         try {
           const contextEngine = services.contextEngine;
           const stepLabel = (activeStep as any).label || '';
-          const isWritingStep = stepLabel.toLowerCase().includes('chapter') ||
-            stepLabel.toLowerCase().includes('write') ||
-            (activeStep as any).phase === 'writing';
+          const stepSkill = (activeStep as any).skill || '';
+          const stepPhase = (activeStep as any).phase || '';
+          const isCanonicalChapter = stepSkill === 'write' || stepPhase === 'polish';
           const isBibleStep = currentProject.type === 'book-bible' ||
             stepLabel.toLowerCase().includes('bible') ||
-            stepLabel.toLowerCase().includes('character') ||
-            stepLabel.toLowerCase().includes('world');
+            stepLabel.toLowerCase().includes('world') ||
+            (stepLabel.toLowerCase().includes('character') && stepSkill !== 'revise');
 
-          if (contextEngine && response.length > 200 && (isWritingStep || isBibleStep)) {
+          if (contextEngine && response.length > 200 && (isCanonicalChapter || isBibleStep)) {
             const chapterNum = currentProject.steps.filter((s: any) =>
               s.status === 'completed' && s.id !== activeStep.id
             ).length + 1;
@@ -1108,8 +1134,12 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
         try {
           const autoNarrate = !!currentProject.context?.autoNarrate;
           const stepLabel = String((activeStep as any).label || '').toLowerCase();
-          const isWritingStep = stepLabel.includes('chapter') || stepLabel.includes('write') ||
-            (activeStep as any).phase === 'writing';
+          // Match the same canonical-chapter signal as the ContextEngine hook so
+          // we don't auto-narrate review/polish notes — only first-draft prose
+          // and polished revisions get audio.
+          const stepSkill = (activeStep as any).skill || '';
+          const stepPhase = (activeStep as any).phase || '';
+          const isWritingStep = stepSkill === 'write' || stepPhase === 'polish';
           if (autoNarrate && isWritingStep && services.tts && response.length > 200) {
             // Resolve the persona's voice if the project has one — keeps each pen
             // name's narration consistent across chapters.
@@ -1932,8 +1962,31 @@ export function createAPIRoutes(app: Application, gateway: any, rootDir?: string
 
       if (isChapterProject) {
         // ── Chapter-based compile (book-production / novel-pipeline) ──
-        const writingSteps = project.steps
-          .filter((s: any) => s.phase === 'writing' && s.status === 'completed')
+        // For each chapter, prefer the POLISH step's output (revised prose)
+        // over the WRITE step's output (first draft). Falls back to write
+        // if polish hasn't run yet OR for legacy projects that don't have
+        // a polish phase. This was the source of the "compile is empty"
+        // bug — old code mixed write + review notes for the same chapter
+        // because both shared `phase: 'writing'`.
+        const completedChapterSteps = project.steps
+          .filter((s: any) => s.status === 'completed' &&
+                              (s.phase === 'writing' || s.phase === 'polish') &&
+                              (s.chapterNumber || s.skill === 'write' || s.skill === 'revise'));
+
+        // Group by chapterNumber, preferring polish over write.
+        const chapterPicks = new Map<number, any>();
+        for (const s of completedChapterSteps) {
+          const ch = (s as any).chapterNumber || 0;
+          const existing = chapterPicks.get(ch);
+          if (!existing) {
+            chapterPicks.set(ch, s);
+          } else if (s.phase === 'polish' && existing.phase !== 'polish') {
+            chapterPicks.set(ch, s);
+          }
+          // If both exist and current pick is already polish, keep it.
+        }
+
+        const writingSteps = Array.from(chapterPicks.values())
           .sort((a: any, b: any) => (a.chapterNumber || 0) - (b.chapterNumber || 0));
 
         for (const ws of writingSteps) {
