@@ -22,11 +22,65 @@ export interface ImageResult {
 }
 
 export interface ImageGenOptions {
-  provider?: 'together' | 'openai' | 'auto';
+  provider?: 'together' | 'openai' | 'openrouter' | 'auto';
   width?: number;
   height?: number;
   style?: 'realistic' | 'illustrated' | 'minimalist';
+  /** OpenAI gpt-image-1 quality knob: 'low' | 'medium' | 'high' | 'auto' (default 'high' for covers) */
+  quality?: 'low' | 'medium' | 'high' | 'auto';
 }
+
+/**
+ * Standard cover sizes an author needs for the major retail platforms.
+ * Each variant has the closest aspect ratio supported by gpt-image-1.
+ */
+export type CoverVariant = 'ebook' | 'print' | 'audiobook' | 'social';
+
+export interface CoverSetResult {
+  /** Master cover description used for the prompt across all variants. */
+  promptUsed: string;
+  /** Per-variant generation result, keyed by variant. */
+  variants: Partial<Record<CoverVariant, ImageResult>>;
+  /** Variants that succeeded — for quick check by callers. */
+  successfulVariants: CoverVariant[];
+  /** Total cost estimate (USD). */
+  estimatedCost: number;
+}
+
+/** What each variant is for, with platform sizing notes. Used as prompt
+ *  context AND as the response's documentation for the author. */
+const COVER_VARIANTS: Record<CoverVariant, {
+  label: string;
+  width: number;
+  height: number;
+  aspectNote: string;
+  platformNote: string;
+}> = {
+  ebook: {
+    label: 'Ebook (Amazon Kindle / KDP)',
+    width: 1024, height: 1536,
+    aspectNote: '2:3 vertical',
+    platformNote: 'Amazon KDP recommends 2560×1600 (1.6:1). Generated at 2:3 — upscale if your retailer requires more pixels.',
+  },
+  print: {
+    label: 'Print paperback / hardcover (6×9 inch)',
+    width: 1024, height: 1536,
+    aspectNote: '2:3 vertical (matches 6×9 trim)',
+    platformNote: 'For KDP print, this is the FRONT COVER ONLY. Spine + back panel must be added in your cover designer (KDP Cover Creator, Canva, Photoshop, etc.).',
+  },
+  audiobook: {
+    label: 'Audiobook (ACX / Findaway / Spotify)',
+    width: 1024, height: 1024,
+    aspectNote: '1:1 square',
+    platformNote: 'ACX requires 2400×2400 minimum. Generated at 1024×1024 — upscale to 2400×2400 before submitting.',
+  },
+  social: {
+    label: 'Social promo banner',
+    width: 1536, height: 1024,
+    aspectNote: '3:2 landscape',
+    platformNote: 'Use for Twitter / X cards, Facebook OG images, BookBub feature graphics, newsletter headers. Add title + cover thumb + tagline in your designer of choice.',
+  },
+};
 
 export class ImageGenService {
   private imageDir: string;
@@ -67,6 +121,7 @@ export class ImageGenService {
     const width = options.width || 1024;
     const height = options.height || 1536; // Book cover ratio ~2:3
     const preferredProvider = options.provider || 'auto';
+    const quality = options.quality || 'high';
 
     // Add style prefix to prompt
     let styledPrompt = prompt;
@@ -78,21 +133,31 @@ export class ImageGenService {
       styledPrompt = `Photorealistic, cinematic lighting, high-detail. ${prompt}`;
     }
 
-    // Try Together AI first (if requested or auto)
-    if (preferredProvider === 'together' || preferredProvider === 'auto') {
-      const result = await this.generateWithTogether(styledPrompt, width, height);
+    // ── Provider preference order ──
+    // For 'auto' we now prefer OpenAI gpt-image-1 because it produces the best
+    // book covers for most genres (per author feedback). Together AI is the
+    // free fallback when no OpenAI key is configured. Explicit `provider:`
+    // values still override this preference.
+    const preferenceChain: Array<'openai' | 'together'> =
+      preferredProvider === 'openai' ? ['openai']
+      : preferredProvider === 'together' ? ['together']
+      : ['openai', 'together']; // 'auto'
+
+    let lastError = '';
+    for (const provider of preferenceChain) {
+      const result = provider === 'openai'
+        ? await this.generateWithOpenAI(styledPrompt, width, height, quality)
+        : await this.generateWithTogether(styledPrompt, width, height);
       if (result.success) return result;
-      if (preferredProvider === 'together') return result; // Don't fallback if explicitly chosen
+      lastError = result.error || `${provider} failed without an error message`;
+      // If user explicitly chose this provider, don't fall through.
+      if (preferredProvider === provider) return result;
     }
 
-    // Try OpenAI (if requested or auto-fallback)
-    if (preferredProvider === 'openai' || preferredProvider === 'auto') {
-      const result = await this.generateWithOpenAI(styledPrompt, width, height);
-      if (result.success) return result;
-      return result;
-    }
-
-    return { success: false, error: 'No image generation provider available. Add a Together AI or OpenAI API key in Settings.' };
+    return {
+      success: false,
+      error: `No image provider succeeded. Last error: ${lastError}. Add an OpenAI key (preferred) or Together AI key in Settings → API Keys.`,
+    };
   }
 
   /**
@@ -104,6 +169,14 @@ export class ImageGenService {
     genre: string;
     description: string;
     style?: 'realistic' | 'illustrated' | 'minimalist';
+    /** Optional rich-prompt fields. Pass to enrich the AI's visual brief. */
+    subgenre?: string;
+    mood?: string;                  // e.g., "tense, claustrophobic"
+    era?: string;                   // e.g., "1920s Vienna" / "near-future"
+    setting?: string;               // e.g., "ancient library at midnight"
+    keyImagery?: string[];          // e.g., ["a burning compass", "raven feathers"]
+    palette?: string;               // e.g., "deep blue and gold" / "blood red on black"
+    avoidImagery?: string;          // e.g., "no faces, no weapons"
   }): Promise<ImageResult> {
     const coverPrompt = this.buildCoverPrompt(params);
     return this.generate(coverPrompt, {
@@ -111,6 +184,103 @@ export class ImageGenService {
       width: 1024,
       height: 1536,
     });
+  }
+
+  /**
+   * Generate the full set of standard cover sizes an author needs:
+   *   ebook (vertical 2:3) — Amazon Kindle / KDP
+   *   print (vertical 2:3) — Print paperback / hardcover front
+   *   audiobook (1:1)      — ACX / Findaway / Spotify
+   *   social (3:2)         — Twitter card / FB OG / promo banners
+   *
+   * All variants use the SAME visual brief so the cover-set looks
+   * cohesive across formats. The model is asked to compose for the
+   * given aspect ratio in each call, so the layout adapts (vertical
+   * spine-friendly composition for ebook vs. landscape for social).
+   *
+   * Cost (gpt-image-1, high quality, late 2025-2026 pricing):
+   *   1024x1024  ≈ $0.17/image
+   *   1024x1536  ≈ $0.25/image
+   *   1536x1024  ≈ $0.25/image
+   *   Full set   ≈ $0.92 (one of each + ebook = 2× 1024x1536)
+   */
+  async generateCoverSet(params: {
+    title: string;
+    author: string;
+    genre: string;
+    description: string;
+    style?: 'realistic' | 'illustrated' | 'minimalist';
+    subgenre?: string;
+    mood?: string;
+    era?: string;
+    setting?: string;
+    keyImagery?: string[];
+    palette?: string;
+    avoidImagery?: string;
+    /** Limit to a subset of variants. Default: all four. */
+    variants?: CoverVariant[];
+    quality?: 'low' | 'medium' | 'high' | 'auto';
+    provider?: 'together' | 'openai' | 'auto';
+  }): Promise<CoverSetResult> {
+    const promptBase = this.buildCoverPrompt(params);
+    const targets = params.variants || ['ebook', 'print', 'audiobook', 'social'];
+    const variants: Partial<Record<CoverVariant, ImageResult>> = {};
+    const successful: CoverVariant[] = [];
+    let estimatedCost = 0;
+
+    // Cost approximations per gpt-image-1 high-quality output. Low quality
+    // is ~1/4 the price; medium ~1/2.
+    const costMap: Record<string, number> = {
+      '1024x1024': 0.17,
+      '1024x1536': 0.25,
+      '1536x1024': 0.25,
+    };
+    const qualityMult = params.quality === 'low' ? 0.25
+                      : params.quality === 'medium' ? 0.5
+                      : 1.0;
+
+    for (const variant of targets) {
+      const spec = COVER_VARIANTS[variant];
+      if (!spec) continue;
+
+      // Each variant gets the same brief but a small composition hint so
+      // the model lays out for the target aspect.
+      const variantHint =
+        variant === 'audiobook'
+          ? ' Square 1:1 composition: focal element centered, balanced both vertically and horizontally; works as a thumbnail.'
+        : variant === 'social'
+          ? ' Wide 3:2 landscape composition: scene reads left-to-right; leave room for overlay text on one side.'
+        : ' Vertical 2:3 portrait composition: classic book-cover layout, focal element centered, room at top for title and bottom for author name. NO TEXT in the image — title/author are overlaid in post.';
+
+      const prompt = promptBase + variantHint;
+
+      const result = await this.generate(prompt, {
+        provider: params.provider || 'auto',
+        style: params.style || 'illustrated',
+        width: spec.width,
+        height: spec.height,
+        quality: params.quality || 'high',
+      });
+
+      variants[variant] = result;
+      if (result.success) {
+        successful.push(variant);
+        const sizeKey = `${spec.width}x${spec.height}`;
+        estimatedCost += (costMap[sizeKey] || 0.2) * qualityMult;
+      }
+    }
+
+    return {
+      promptUsed: promptBase,
+      variants,
+      successfulVariants: successful,
+      estimatedCost: Math.round(estimatedCost * 100) / 100,
+    };
+  }
+
+  /** List the cover-variant specs for the dashboard. */
+  static getCoverVariants(): typeof COVER_VARIANTS {
+    return COVER_VARIANTS;
   }
 
   // ── Together AI ──
@@ -200,7 +370,12 @@ export class ImageGenService {
 
   // ── OpenAI ──
 
-  private async generateWithOpenAI(prompt: string, width: number, height: number): Promise<ImageResult> {
+  private async generateWithOpenAI(
+    prompt: string,
+    width: number,
+    height: number,
+    quality: 'low' | 'medium' | 'high' | 'auto' = 'high',
+  ): Promise<ImageResult> {
     const apiKey = await this.vault.get('openai_api_key');
     if (!apiKey) {
       return { success: false, error: 'OpenAI API key not configured' };
@@ -220,10 +395,11 @@ export class ImageGenService {
           model: ImageGenService.OPENAI_MODEL,
           prompt,
           size,
+          quality,
           n: 1,
-          response_format: 'b64_json',
+          // gpt-image-1 always returns base64 — no response_format param.
         }),
-        signal: AbortSignal.timeout(120000),
+        signal: AbortSignal.timeout(180000), // 3-min cap; high quality covers can take 60-90s
       });
 
       if (!response.ok) {
@@ -242,7 +418,7 @@ export class ImageGenService {
   }
 
   private getOpenAISize(width: number, height: number): string {
-    // OpenAI supports specific sizes for gpt-image-1
+    // gpt-image-1 supports exactly: 1024x1024, 1024x1536, 1536x1024, 'auto'
     const ratio = width / height;
     if (ratio < 0.8) return '1024x1536'; // Portrait (book cover)
     if (ratio > 1.2) return '1536x1024'; // Landscape
@@ -270,9 +446,24 @@ export class ImageGenService {
   }
 
   /**
-   * Build a detailed book cover prompt from context.
+   * Build a detailed book cover prompt from context. Optional rich fields
+   * (subgenre, mood, era, setting, keyImagery, palette, avoidImagery) are
+   * all woven into the brief when provided. When they're omitted, we fall
+   * back to the generic genre style — still works, just less specific.
    */
-  private buildCoverPrompt(params: { title: string; author: string; genre: string; description: string }): string {
+  private buildCoverPrompt(params: {
+    title: string;
+    author: string;
+    genre: string;
+    description: string;
+    subgenre?: string;
+    mood?: string;
+    era?: string;
+    setting?: string;
+    keyImagery?: string[];
+    palette?: string;
+    avoidImagery?: string;
+  }): string {
     const genreStyles: Record<string, string> = {
       'romance': 'warm tones, intimate atmosphere, elegant, soft lighting, couple silhouette or embrace',
       'fantasy': 'epic, magical, dramatic lighting, mystical elements, rich colors, castle or magical landscape',
@@ -290,11 +481,25 @@ export class ImageGenService {
     const genreKey = Object.keys(genreStyles).find(k => params.genre.toLowerCase().includes(k)) || 'literary';
     const genreStyle = genreStyles[genreKey];
 
-    return `Professional book cover design for "${params.title}" by ${params.author}. ` +
-      `Genre: ${params.genre}. ${genreStyle}. ` +
-      `The cover should convey: ${params.description.slice(0, 300)}. ` +
-      `Leave clear space at the top for the title and at the bottom for the author name. ` +
-      `High quality, commercial book cover, suitable for Amazon KDP. No text on the image.`;
+    const parts: string[] = [
+      `Professional book cover for "${params.title}" by ${params.author}.`,
+      `Genre: ${params.genre}${params.subgenre ? ` / ${params.subgenre}` : ''}.`,
+      `Style: ${genreStyle}.`,
+    ];
+    if (params.era) parts.push(`Era / time period: ${params.era}.`);
+    if (params.setting) parts.push(`Setting: ${params.setting}.`);
+    if (params.mood) parts.push(`Mood: ${params.mood}.`);
+    if (params.palette) parts.push(`Color palette: ${params.palette}.`);
+    if (params.keyImagery && params.keyImagery.length > 0) {
+      parts.push(`Key visual elements: ${params.keyImagery.slice(0, 5).join('; ')}.`);
+    }
+    parts.push(`Story essence (do not depict literally — capture the feeling): ${params.description.slice(0, 300)}.`);
+    if (params.avoidImagery) parts.push(`Do NOT include: ${params.avoidImagery}.`);
+    parts.push(`Composition: leave clear space at the top for title typography and at the bottom for the author name.`);
+    parts.push(`Output: high-quality commercial book cover, suitable for Amazon KDP and other retailers.`);
+    parts.push(`CRITICAL: NO TEXT in the image — title and author name are added separately in post.`);
+
+    return parts.join(' ');
   }
 
   /**
